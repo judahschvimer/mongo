@@ -1083,7 +1083,7 @@ var ShardingTest = function(params) {
             this._rs[i] =
                 {setName: setName, test: rs, nodes: rs.startSet(rsDefaults), url: rs.getURL()};
 
-            rs.initiate(null, null, initiateTimeout);
+            rs.initiateNoWait(null, null);
 
             this["rs" + i] = rs;
             this._rsObjects[i] = rs;
@@ -1170,6 +1170,7 @@ var ShardingTest = function(params) {
         }
 
         var rs = this._rs[i].test;
+        rs.initiateWait(null, 5 * 60 * 1000);
         rs.getPrimary().getDB("admin").foo.save({x: 1});
 
         if (keyFile) {

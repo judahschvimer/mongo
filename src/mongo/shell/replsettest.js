@@ -664,6 +664,32 @@ var ReplSetTest = function(opts) {
             jsTest.authenticateNodes(this.nodes);
         }
     };
+    
+    this.initiateNoWait = function(cfg, initCmd) {
+        var master = this.nodes[0].getDB("admin");
+        var config = cfg || this.getReplSetConfig();
+        var cmd = {};
+        var cmdKey = initCmd || 'replSetInitiate';
+
+        this._setDefaultConfigOptions(config);
+
+        cmd[cmdKey] = config;
+        printjson(cmd);
+
+        assert.commandWorked(master.runCommand(cmd), tojson(cmd));
+    };
+    
+    this.initiateWait = function(initCmd, timeout) {
+        timeout = timeout || self.kDefaultTimeoutMS;
+        var cmdKey = initCmd || 'replSetInitiate';
+        this.awaitSecondaryNodes(timeout);
+
+        // Setup authentication if running test with authentication
+        if ((jsTestOptions().keyFile) && cmdKey == 'replSetInitiate') {
+            master = this.getPrimary();
+            jsTest.authenticateNodes(this.nodes);
+        }
+    };
 
     /**
      * Gets the current replica set config from the specified node index. If no nodeId is specified,
