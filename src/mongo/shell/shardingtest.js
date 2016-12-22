@@ -1040,6 +1040,52 @@ var ShardingTest = function(params) {
         var unbridgedConfigServers = [];
         var unbridgedMongos = [];
     }
+    
+    this._configServers = [];
+
+    // Using replica set for config servers
+    var rstOptions = {
+        useHostName: otherParams.useHostname,
+        useBridge: otherParams.useBridge,
+        bridgeOptions: otherParams.bridgeOptions,
+        keyFile: keyFile,
+        name: testName + "-configRS",
+    };
+
+    // when using CSRS, always use wiredTiger as the storage engine
+    var startOptions = {
+        pathOpts: pathOpts,
+        // Ensure that journaling is always enabled for config servers.
+        journal: "",
+        configsvr: "",
+        noJournalPrealloc: otherParams.nopreallocj,
+        storageEngine: "wiredTiger",
+    };
+
+    if (otherParams.configOptions && otherParams.configOptions.binVersion) {
+        otherParams.configOptions.binVersion =
+            MongoRunner.versionIterator(otherParams.configOptions.binVersion);
+    }
+
+    startOptions = Object.merge(startOptions, otherParams.configOptions);
+    rstOptions = Object.merge(rstOptions, otherParams.configReplSetTestOptions);
+
+    var nodeOptions = [];
+    for (var i = 0; i < numConfigs; ++i) {
+        nodeOptions.push(otherParams["c" + i] || {});
+    }
+
+    rstOptions.nodes = nodeOptions;
+
+    // Start the config server's replica set
+    this.configRS = new ReplSetTest(rstOptions);
+    this.configRS.startSet(startOptions);
+
+    var config = this.configRS.getReplSetConfig();
+    config.configsvr = true;
+    config.settings = config.settings || {};
+    var initiateTimeout = otherParams.rsOptions && otherParams.rsOptions.initiateTimeout;
+    this.configRS.initiateNoWait(config, null);
 
     // Start the MongoD servers (shards)
     for (var i = 0; i < numShards; i++) {
@@ -1189,51 +1235,7 @@ var ShardingTest = function(params) {
         rsConn.rs = rs;
     }
 
-    this._configServers = [];
-
-    // Using replica set for config servers
-    var rstOptions = {
-        useHostName: otherParams.useHostname,
-        useBridge: otherParams.useBridge,
-        bridgeOptions: otherParams.bridgeOptions,
-        keyFile: keyFile,
-        name: testName + "-configRS",
-    };
-
-    // when using CSRS, always use wiredTiger as the storage engine
-    var startOptions = {
-        pathOpts: pathOpts,
-        // Ensure that journaling is always enabled for config servers.
-        journal: "",
-        configsvr: "",
-        noJournalPrealloc: otherParams.nopreallocj,
-        storageEngine: "wiredTiger",
-    };
-
-    if (otherParams.configOptions && otherParams.configOptions.binVersion) {
-        otherParams.configOptions.binVersion =
-            MongoRunner.versionIterator(otherParams.configOptions.binVersion);
-    }
-
-    startOptions = Object.merge(startOptions, otherParams.configOptions);
-    rstOptions = Object.merge(rstOptions, otherParams.configReplSetTestOptions);
-
-    var nodeOptions = [];
-    for (var i = 0; i < numConfigs; ++i) {
-        nodeOptions.push(otherParams["c" + i] || {});
-    }
-
-    rstOptions.nodes = nodeOptions;
-
-    // Start the config server's replica set
-    this.configRS = new ReplSetTest(rstOptions);
-    this.configRS.startSet(startOptions);
-
-    var config = this.configRS.getReplSetConfig();
-    config.configsvr = true;
-    config.settings = config.settings || {};
-    var initiateTimeout = otherParams.rsOptions && otherParams.rsOptions.initiateTimeout;
-    this.configRS.initiate(config, null, initiateTimeout);
+    this.configRS.initiateWait(null, initiateTimeout);
 
     // Wait for master to be elected before starting mongos
     var csrsPrimary = this.configRS.getPrimary();
