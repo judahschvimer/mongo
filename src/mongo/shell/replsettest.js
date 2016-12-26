@@ -686,7 +686,7 @@ var ReplSetTest = function(opts) {
 
         // Setup authentication if running test with authentication
         if ((jsTestOptions().keyFile) && cmdKey == 'replSetInitiate') {
-            master = this.getPrimary();
+            var master = this.getPrimary();
             jsTest.authenticateNodes(this.nodes);
         }
     };
