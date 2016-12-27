@@ -1079,16 +1079,15 @@ var ShardingTest = function(params) {
 
     // Start the config server's replica set
     this.configRS = new ReplSetTest(rstOptions);
-    this.configRS.startSet(startOptions);
+    this.configRS.startSetNoWait(startOptions);
 
     var config = this.configRS.getReplSetConfig();
     config.configsvr = true;
     config.settings = config.settings || {};
     var initiateTimeout = otherParams.rsOptions && otherParams.rsOptions.initiateTimeout;
-    this.configRS.initiateNoWait(config, null);
 
     // Start the MongoD servers (shards)
-    for (var i = 0; i < numShards; i++) {
+    for (let i = 0; i < numShards; i++) {
         if (otherParams.rs || otherParams["rs" + i]) {
             var setName = testName + "-rs" + i;
 
@@ -1127,19 +1126,8 @@ var ShardingTest = function(params) {
             });
 
             this._rs[i] =
-                {setName: setName, test: rs, nodes: rs.startSet(rsDefaults), url: rs.getURL()};
+                {setName: setName, test: rs, nodes: rs.startSetNoWait(rsDefaults), url: rs.getURL()};
 
-            rs.initiateNoWait(null, null);
-
-            this["rs" + i] = rs;
-            this._rsObjects[i] = rs;
-
-            _alldbpaths.push(null);
-            this._connections.push(null);
-
-            if (otherParams.useBridge) {
-                unbridgedConnections.push(null);
-            }
         } else {
             var options = {
                 useHostname: otherParams.useHostname,
@@ -1208,9 +1196,29 @@ var ShardingTest = function(params) {
             this._rsObjects[i] = null;
         }
     }
+    
+    this.configRS.startSetWait();
+    this.configRS.initiateNoWait(config, null);
+    for (let i = 0; i < numShards; i++) {
+        if (otherParams.rs || otherParams["rs" + i]) {
+            var rs = this._rs[i].test;
+            rs.startSetWait();
+            rs.initiateNoWait(null, null);
+
+            this["rs" + i] = rs;
+            this._rsObjects[i] = rs;
+
+            _alldbpaths.push(null);
+            this._connections.push(null);
+
+            if (otherParams.useBridge) {
+                unbridgedConnections.push(null);
+            }
+        }
+    }
 
     // Do replication on replica sets if required
-    for (var i = 0; i < numShards; i++) {
+    for (let i = 0; i < numShards; i++) {
         if (!otherParams.rs && !otherParams["rs" + i]) {
             continue;
         }

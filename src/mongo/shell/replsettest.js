@@ -443,6 +443,32 @@ var ReplSetTest = function(opts) {
         this.nodes = nodes;
         return this.nodes;
     };
+    
+    this.startSetNoWait = function(options) {
+        print("ReplSetTest starting set no wait: " + tojson(this.ports));
+
+        var nodes = [];
+        for (let n = 0; n < this.ports.length; n++) {
+            nodes.push(this.start(n, options));
+        }
+        this.nodes = nodes;
+    };
+    
+    this.startSetWait = function() {
+        print("ReplSetTest starting set with wait: " + tojson(this.ports));
+
+        var nodes = this.nodes;
+        var ports = this.ports;
+        for (let n = 0; n < this.ports.length; n++) {
+            assert.soonNoExcept(function() {
+                nodes[n] = Mongo(nodes[n].host);
+                return true;
+            }, "Node " + n + " would not start up");
+        }
+
+        this.nodes = nodes;
+        return this.nodes;
+    };
 
     /**
      * Blocks until the secondary nodes have completed recovery and their roles are known.
