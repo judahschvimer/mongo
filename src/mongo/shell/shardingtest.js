@@ -373,6 +373,7 @@ var ShardingTest = function(params) {
     };
 
     this.stop = function(opts) {
+        print("Stopping ShardingTest");
         for (var i = 0; i < this._mongos.length; i++) {
             this.stopMongos(i, opts);
         }
@@ -1247,6 +1248,8 @@ var ShardingTest = function(params) {
 
     // Wait for master to be elected before starting mongos
     var csrsPrimary = this.configRS.getPrimary();
+
+    print("Done initiating shards and config servers");
 
     // If 'otherParams.mongosOptions.binVersion' is an array value, then we'll end up constructing a
     // version iterator. We initialize the options for the mongos processes before checking whether
