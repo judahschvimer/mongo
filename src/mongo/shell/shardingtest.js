@@ -1217,40 +1217,8 @@ var ShardingTest = function(params) {
             }
         }
     }
-
-    // Do replication on replica sets if required
-    for (let i = 0; i < numShards; i++) {
-        if (!otherParams.rs && !otherParams["rs" + i]) {
-            continue;
-        }
-
-        var rs = this._rs[i].test;
-        rs.initiateWait(null, 5 * 60 * 1000);
-        rs.getPrimary().getDB("admin").foo.save({x: 1});
-
-        if (keyFile) {
-            authutil.asCluster(rs.nodes, keyFile, function() {
-                rs.awaitReplication();
-            });
-        }
-
-        rs.awaitSecondaryNodes();
-
-        var rsConn = new Mongo(rs.getURL());
-        rsConn.name = rs.getURL();
-
-        this._connections[i] = rsConn;
-        this["shard" + i] = rsConn;
-        rsConn.rs = rs;
-    }
-
-    this.configRS.initiateWait(null, initiateTimeout);
-
-    // Wait for master to be elected before starting mongos
-    var csrsPrimary = this.configRS.getPrimary();
-
-    print("Done initiating shards and config servers");
-
+    this._configDB = this.configRS.getURL();
+    
     // If 'otherParams.mongosOptions.binVersion' is an array value, then we'll end up constructing a
     // version iterator. We initialize the options for the mongos processes before checking whether
     // we need to run {setFeatureCompatibilityVersion: "3.2"} on the CSRS primary so we know
@@ -1284,6 +1252,81 @@ var ShardingTest = function(params) {
 
         mongosOptions.push(options);
     }
+    
+    this._mongos = [];
+
+    // Start the MongoS servers
+    for (var i = 0; i < numMongos; i++) {
+        const options = mongosOptions[i];
+        options.configdb = this._configDB;
+
+        if (otherParams.useBridge) {
+            var bridgeOptions =
+                Object.merge(otherParams.bridgeOptions, options.bridgeOptions || {});
+            bridgeOptions = Object.merge(bridgeOptions, {
+                hostName: otherParams.useHostname ? hostName : "localhost",
+                // The mongos processes identify themselves to mongobridge as host:port, where the
+                // host is the actual hostname of the machine and not localhost.
+                dest: hostName + ":" + options.port,
+            });
+
+            var bridge = new MongoBridge(bridgeOptions);
+        }
+
+        var conn = MongoRunner.runMongos(options);
+        if (!conn) {
+            throw new Error("Failed to start mongos " + i);
+        }
+
+        if (otherParams.useBridge) {
+            bridge.connectToBridge();
+            this._mongos.push(bridge);
+            unbridgedMongos.push(conn);
+        } else {
+            this._mongos.push(conn);
+        }
+
+        if (i === 0) {
+            this.s = this._mongos[i];
+            this.admin = this._mongos[i].getDB('admin');
+            this.config = this._mongos[i].getDB('config');
+        }
+
+        this["s" + i] = this._mongos[i];
+    }
+
+    // Do replication on replica sets if required
+    for (let i = 0; i < numShards; i++) {
+        if (!otherParams.rs && !otherParams["rs" + i]) {
+            continue;
+        }
+
+        var rs = this._rs[i].test;
+        rs.initiateWait(null, 5 * 60 * 1000);
+        rs.getPrimary().getDB("admin").foo.save({x: 1});
+
+        if (keyFile) {
+            authutil.asCluster(rs.nodes, keyFile, function() {
+                rs.awaitReplication();
+            });
+        }
+
+        rs.awaitSecondaryNodes();
+
+        var rsConn = new Mongo(rs.getURL());
+        rsConn.name = rs.getURL();
+
+        this._connections[i] = rsConn;
+        this["shard" + i] = rsConn;
+        rsConn.rs = rs;
+    }
+
+    this.configRS.initiateWait(null, initiateTimeout);
+
+    // Wait for master to be elected before starting mongos
+    var csrsPrimary = this.configRS.getPrimary();
+
+    print("Done initiating shards and config servers");
 
     /**
      * Helper method to check whether we should set featureCompatibilityVersion to 3.2 on the CSRS.
@@ -1368,7 +1411,6 @@ var ShardingTest = function(params) {
         }
     }
 
-    this._configDB = this.configRS.getURL();
     this._configServers = this.configRS.nodes;
     for (var i = 0; i < numConfigs; ++i) {
         var conn = this._configServers[i];
@@ -1382,48 +1424,6 @@ var ShardingTest = function(params) {
 
     print("ShardingTest " + this._testName + " :\n" +
           tojson({config: this._configDB, shards: this._connections}));
-
-    this._mongos = [];
-
-    // Start the MongoS servers
-    for (var i = 0; i < numMongos; i++) {
-        const options = mongosOptions[i];
-        options.configdb = this._configDB;
-
-        if (otherParams.useBridge) {
-            var bridgeOptions =
-                Object.merge(otherParams.bridgeOptions, options.bridgeOptions || {});
-            bridgeOptions = Object.merge(bridgeOptions, {
-                hostName: otherParams.useHostname ? hostName : "localhost",
-                // The mongos processes identify themselves to mongobridge as host:port, where the
-                // host is the actual hostname of the machine and not localhost.
-                dest: hostName + ":" + options.port,
-            });
-
-            var bridge = new MongoBridge(bridgeOptions);
-        }
-
-        var conn = MongoRunner.runMongos(options);
-        if (!conn) {
-            throw new Error("Failed to start mongos " + i);
-        }
-
-        if (otherParams.useBridge) {
-            bridge.connectToBridge();
-            this._mongos.push(bridge);
-            unbridgedMongos.push(conn);
-        } else {
-            this._mongos.push(conn);
-        }
-
-        if (i === 0) {
-            this.s = this._mongos[i];
-            this.admin = this._mongos[i].getDB('admin');
-            this.config = this._mongos[i].getDB('config');
-        }
-
-        this["s" + i] = this._mongos[i];
-    }
 
     _extendWithShMethods();
 
