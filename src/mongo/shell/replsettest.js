@@ -430,8 +430,14 @@ var ReplSetTest = function(opts) {
         print("ReplSetTest starting set");
 
         var nodes = [];
-        for (var n = 0; n < this.ports.length; n++) {
+        for (let n = 0; n < this.ports.length; n++) {
             nodes.push(this.start(n, options));
+        }
+        for (let n = 0; n < this.ports.length; n++) {
+            assert.soonNoExcept(function() {
+                nodes[n] = Mongo(nodes[n].host);
+                return true;
+            }, "Node " + n + " would not start up");
         }
 
         this.nodes = nodes;
@@ -1426,6 +1432,7 @@ var ReplSetTest = function(opts) {
             this.nodes[n] = new MongoBridge(bridgeOptions);
         }
 
+        options.waitForConnect = false;
         var conn = MongoRunner.runMongod(options);
         if (!conn) {
             throw new Error("Failed to start node " + n);
