@@ -449,7 +449,7 @@ var ReplSetTest = function(opts) {
         var ports = this.ports;
         for (let n = 0; n < this.ports.length; n++) {
             assert.soonNoExcept(function() {
-                nodes[n] = Object.assign(Mongo(nodes[n].host), nodes[n]);
+                nodes[n] = Object.assign(new Mongo("127.0.0.1:" + nodes[n].port), nodes[n]);
                 return true;
             }, "Node " + n + " would not start up");
         }
