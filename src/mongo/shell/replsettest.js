@@ -428,20 +428,8 @@ var ReplSetTest = function(opts) {
      */
     this.startSet = function(options) {
         print("ReplSetTest starting set");
-
-        var nodes = [];
-        for (let n = 0; n < this.ports.length; n++) {
-            nodes.push(this.start(n, options));
-        }
-        for (let n = 0; n < this.ports.length; n++) {
-            assert.soonNoExcept(function() {
-                nodes[n] = Mongo(nodes[n].host);
-                return true;
-            }, "Node " + n + " would not start up");
-        }
-
-        this.nodes = nodes;
-        return this.nodes;
+        this.startSetNoWait(options);
+        return this.startSetWait();
     };
     
     this.startSetNoWait = function(options) {
@@ -461,7 +449,7 @@ var ReplSetTest = function(opts) {
         var ports = this.ports;
         for (let n = 0; n < this.ports.length; n++) {
             assert.soonNoExcept(function() {
-                nodes[n] = Mongo(nodes[n].host);
+                nodes[n] = Object.assign(Mongo(nodes[n].host), nodes[n]);
                 return true;
             }, "Node " + n + " would not start up");
         }
