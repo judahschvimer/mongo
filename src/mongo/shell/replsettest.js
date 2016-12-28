@@ -664,25 +664,8 @@ var ReplSetTest = function(opts) {
     };
 
     this.initiate = function(cfg, initCmd, timeout) {
-        var master = this.nodes[0].getDB("admin");
-        var config = cfg || this.getReplSetConfig();
-        var cmd = {};
-        var cmdKey = initCmd || 'replSetInitiate';
-        timeout = timeout || self.kDefaultTimeoutMS;
-
-        this._setDefaultConfigOptions(config);
-
-        cmd[cmdKey] = config;
-        printjson(cmd);
-
-        assert.commandWorked(master.runCommand(cmd), tojson(cmd));
-        this.awaitSecondaryNodes(timeout);
-
-        // Setup authentication if running test with authentication
-        if ((jsTestOptions().keyFile) && cmdKey == 'replSetInitiate') {
-            master = this.getPrimary();
-            jsTest.authenticateNodes(this.nodes);
-        }
+        this.initiateNoWait(cfg, initCmd);
+        this.initiateWait(initCmd, timeout);
     };
     
     this.initiateNoWait = function(cfg, initCmd) {
