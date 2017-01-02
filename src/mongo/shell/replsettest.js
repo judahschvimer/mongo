@@ -437,7 +437,7 @@ var ReplSetTest = function(opts) {
 
         var nodes = [];
         for (let n = 0; n < this.ports.length; n++) {
-            nodes.push(this.start(n, options));
+            nodes.push(this.start(n, options, false, false));
         }
         this.nodes = nodes;
     };
@@ -1429,7 +1429,7 @@ var ReplSetTest = function(opts) {
             this.nodes[n] = new MongoBridge(bridgeOptions);
         }
 
-        options.waitForConnect = false;
+        options.waitForConnect = wait;
         var conn = MongoRunner.runMongod(options);
         if (!conn) {
             throw new Error("Failed to start node " + n);
