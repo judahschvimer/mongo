@@ -143,6 +143,7 @@ env.Library(
         'optime',
         '$BUILD_DIR/mongo/base',
         '$BUILD_DIR/mongo/idl/idl_parser',
+        '$BUILD_DIR/mongo/util/uuid',
     ],
 )
 
@@ -949,6 +950,32 @@ env.CppUnitTest(
         'rollback_common_point_resolver',
         'oplog_interface_mock',
         'abstract_oplog_fetcher_test_fixture',
+    ],
+)
+
+env.Library(
+    target='rollback_document_fetcher',
+    source=[
+        'rollback_document_fetcher.cpp',
+    ],
+    LIBDEPS=[
+        'rollback_idl',
+        '$BUILD_DIR/mongo/base',
+        '$BUILD_DIR/mongo/db/namespace_string',
+    ],
+)
+
+env.CppUnitTest(
+    target='rollback_document_fetcher_test',
+    source='rollback_document_fetcher_test.cpp',
+    LIBDEPS=[
+        'abstract_oplog_fetcher_test_fixture',
+        'rollback_document_fetcher',
+        'rollback_fix_up_info',
+        'rollback_test_fixture',
+        'storage_interface_impl',
+        'task_executor_mock',
+	'$BUILD_DIR/mongo/db/service_context_d_test_fixture',
     ],
 )
 

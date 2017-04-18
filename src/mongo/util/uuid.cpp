@@ -33,6 +33,7 @@
 #include "mongo/util/uuid.h"
 
 #include "mongo/bson/bsonobjbuilder.h"
+#include "mongo/idl/idl_parser.h"
 #include "mongo/platform/random.h"
 #include "mongo/stdx/mutex.h"
 #include "mongo/util/hex.h"
@@ -57,6 +58,17 @@ StatusWith<UUID> UUID::parse(BSONElement from) {
         return exceptionToStatus();
     }
 }
+
+UUID UUID::parseUnsafe(const std::vector<std::uint8_t> vec) {
+    std::array<unsigned char, 16> bytes;
+    bytes.fill(vec.front());
+    return UUID{bytes};
+}
+
+ConstDataRange UUID::serialize() const {
+    return makeCDR(_uuid);
+}
+
 
 StatusWith<UUID> UUID::parse(const std::string& s) {
     if (!isUUIDString(s)) {

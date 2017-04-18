@@ -48,8 +48,6 @@ class UUID {
     using UUIDStorage = std::array<unsigned char, 16>;
 
 public:
-    UUID() = delete;
-
     /**
      * The number of bytes contained in a UUID.
      */
@@ -59,6 +57,10 @@ public:
      * Generate a new random v4 UUID per RFC 4122.
      */
     static UUID gen();
+
+    static UUID parseUnsafe(const std::vector<std::uint8_t> vec);
+
+    ConstDataRange serialize() const;
 
     /**
      * If the given string represents a valid UUID, constructs and returns the UUID,
@@ -116,9 +118,10 @@ public:
         }
     };
 
-private:
+    UUID();
     UUID(const UUIDStorage& uuid) : _uuid(uuid) {}
 
+private:
     UUIDStorage _uuid;  // UUID in network byte order
 };
 

@@ -30,10 +30,20 @@ global:
     cpp_namespace: "mongo::repl"
     cpp_includes:
         - "mongo/db/repl/optime.h"
+        - "mongo/util/uuid.h"
 
 imports:
     - "mongo/idl/basic_types.idl"
     - "mongo/db/repl/replication_types.idl"
+
+types:
+    uuid:
+        bson_serialization_type: bindata
+        bindata_subtype: uuid
+        description: "The UUID of a collection"
+        cpp_type: "mongo::UUID"
+        serializer: mongo::UUID::serialize
+        deserializer: mongo::UUID::parseUnsafe
 
 structs:
     rollbackID:
@@ -55,3 +65,21 @@ structs:
             applyUntil:
                 type: optime
                 description: "The op time that rollback has to reach to complete successfully."
+    
+    SingleDocumentOperationId:
+        description: Represents the ID of a document in the 'kRollbackDocsNamespace' collection.
+        fields:
+           documentId: object 
+           collectionUuid: string
+
+    SingleDocumentOperationDescription:
+        description: Represents a document in the 'kRollbackDocsNamespace' collection. Contains information to roll back document operations.
+        fields:
+           _id:
+               type: SingleDocumentOperationId
+               description: A id object containing both a 'collectionUuid' and 'documentId' field.
+           operationType: string # TODO: Change this to an enum once IDL supports them.
+           dbName: string
+           documentToRestore:
+               type: object
+               optional: true
