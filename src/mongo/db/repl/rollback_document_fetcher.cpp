@@ -62,11 +62,12 @@ RollbackDocumentFetcher::LocalCollectionIterator::LocalCollectionIterator(Namesp
                                               BSONObj(),
                                               BoundInclusion::kIncludeBothStartAndEndKeys,
                                               _batchSize);
-    fassertStatusOK(550419, firstBatch.getStatus());
+    fassertStatusOK(550421, firstBatch.getStatus());
     _currentBatch = firstBatch.getValue();
 }
 
 StatusWith<BSONObj> RollbackDocumentFetcher::LocalCollectionIterator::next() {
+    log() << "Getting next local document";
     auto opCtx = makeOpCtx();
     _currentIndex++;
     // We're now at the end of the batch and should get a new batch. If the collection begins empty,
@@ -112,7 +113,7 @@ RollbackDocumentFetcher::RollbackDocumentFetcher(executor::TaskExecutor* executo
 }
 
 Status RollbackDocumentFetcher::_doStartup_inlock() noexcept {
-    return Status::OK();
+    return _getNextLocalDocument_inlock();
 }
 
 void RollbackDocumentFetcher::_doShutdown_inlock() noexcept {
@@ -153,10 +154,43 @@ Status RollbackDocumentFetcher::_scheduleDocumentFetcher_inlock(const std::strin
     return scheduleStatus;
 }
 
+Status RollbackDocumentFetcher::_getNextLocalDocument_inlock() {
+    // Get next local document.
+    auto nextDoc = _rollbackDocsCollection.next();
+    if (!nextDoc.isOK()) {
+        return nextDoc.getStatus();
+    }
+
+    // Parse document for description.
+    SingleDocumentOperationDescription nextDocDescription;
+    try {
+        nextDocDescription = SingleDocumentOperationDescription::parse(
+            IDLParserErrorContext("SingleDocumentOperationDescription"), nextDoc.getValue());
+    } catch (...) {
+        return exceptionToStatus();
+    }
+
+    // Get the id of the document.
+    auto nextDocIdObj = nextDocDescription.get_id().getDocumentId();
+    BSONObjBuilder bob;
+    bob.append("_id", nextDocIdObj);
+    auto wrappedNextDocId = bob.obj();
+    BSONElement nextDocId = wrappedNextDocId["_id"];
+
+    // Get the full document from the remote node.
+    return _scheduleDocumentFetcher_inlock(
+        nextDocDescription.getDbName().toString(),
+        nextDocDescription.get_id().getCollectionUuid(),
+        nextDocId,
+        stdx::bind(&RollbackDocumentFetcher::_remoteDocumentFetcherCallback,
+                   this,
+                   stdx::placeholders::_1,
+                   nextDocId));
+}
+
 void RollbackDocumentFetcher::_remoteDocumentFetcherCallback(
     const StatusWith<Fetcher::QueryResponse>& result, const BSONElement& docId) {
-    stdx::unique_lock<stdx::mutex> lock(_mutex);
-    auto status = _checkForShutdownAndConvertStatus_inlock(
+    auto status = _checkForShutdownAndConvertStatus(
         result.getStatus(), "error while fetching document with _id:  from uuid: in database: ");
     if (!status.isOK()) {
         _finishCallback(status);
@@ -177,39 +211,21 @@ void RollbackDocumentFetcher::_remoteDocumentFetcherCallback(
                              updateObject);
     }
 
-    auto nextDoc = _rollbackDocsCollection.next();
-    if (!nextDoc.isOK()) {
-        if (nextDoc.getStatus() == ErrorCodes::CollectionIsEmpty) {
-            // We have reached the end of the collection successfully.
-            _finishCallback(Status::OK());
-            return;
-        } else {
-            _finishCallback(nextDoc.getStatus());
-            return;
-        }
+    {
+        stdx::unique_lock<stdx::mutex> lock(_mutex);
+        status = _getNextLocalDocument_inlock();
     }
-
-    auto nextDocDescription = SingleDocumentOperationDescription::parse(
-        IDLParserErrorContext("SingleDocumentOperationDescription"), nextDoc.getValue());
-
-    auto nextDocIdObj = nextDocDescription.get_id().getDocumentId();
-    BSONObjBuilder bob;
-    bob.append("_id", nextDocIdObj);
-    auto wrappedNextDocId = bob.obj();
-    BSONElement nextDocId = wrappedNextDocId["_id"];
-
-    _scheduleDocumentFetcher_inlock(
-        nextDocDescription.getDbName().toString(),
-        nextDocDescription.get_id().getCollectionUuid(),
-        nextDocId,
-        stdx::bind(&RollbackDocumentFetcher::_remoteDocumentFetcherCallback,
-                   this,
-                   stdx::placeholders::_1,
-                   nextDocId));
+    if (!status.isOK()) {
+        _finishCallback(status);
+    }
 }
 
 void RollbackDocumentFetcher::_finishCallback(Status status) {
     invariant(isActive());
+    invariant(!status.isOK());
+    if (status == ErrorCodes::CollectionIsEmpty) {
+        status = Status::OK();
+    }
 
     _onShutdownCallbackFn(status);
 

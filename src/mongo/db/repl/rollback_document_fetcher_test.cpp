@@ -67,12 +67,12 @@ protected:
 
 void RollbackDocumentFetcherTest::setUp() {
     RollbackTest::setUp();
+
     _storage = stdx::make_unique<StorageInterfaceImpl>();
     _taskExecutorMock = stdx::make_unique<TaskExecutorMock>(&_threadPoolExecutorTest.getExecutor());
     HostAndPort syncSource("localhost", 1234);
 
-    auto opCtx = makeOpCtx();
-    _storage->createCollection(opCtx.get(), docsNss, CollectionOptions());
+    _storage->createCollection(_opCtx.get(), docsNss, CollectionOptions());
 
     _onCompletionResult = executor::TaskExecutorTest::getDetectableErrorStatus();
     _onCompletion = [this](const StatusWith<OpTime>& result) noexcept {
@@ -111,11 +111,10 @@ BSONObj makeSingleDocumentOperationEntry(const BSONObj& id, std::string opType) 
 
 TEST_F(RollbackDocumentFetcherTest, DocumentFetcherFetchesDocuments) {
     StorageInterfaceImpl storage;
-    auto opCtx = makeOpCtx();
 
     BSONObj id = BSON("a" << 1);
     ASSERT_OK(_storage->insertDocuments(
-        opCtx.get(), docsNss, {makeSingleDocumentOperationEntry(id, "delete")}));
+        _opCtx.get(), docsNss, {makeSingleDocumentOperationEntry(id, "delete")}));
 
     ASSERT_OK(_docFetcher->startup());
 

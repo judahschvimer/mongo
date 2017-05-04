@@ -105,6 +105,8 @@ private:
     void _remoteDocumentFetcherCallback(const StatusWith<Fetcher::QueryResponse>& result,
                                         const BSONElement& docId);
 
+    Status _getNextLocalDocument_inlock();
+
     /**
      * Notifies caller that the RollbackDocumentFetcher has finished fetching documents from the
      * local collection using the "_onShutdownCallbackFn".
