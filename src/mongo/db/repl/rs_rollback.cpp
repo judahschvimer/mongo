@@ -634,11 +634,13 @@ void rollbackCreateIndexes(OperationContext* opCtx, UUID uuid, std::set<std::str
     for (auto itIndex = indexNames.begin(); itIndex != indexNames.end(); itIndex++) {
         const string& indexName = *itIndex;
 
-        log() << "Dropping index in rollback: collection = " << nss.toString()
-              << ", index = " << indexName;
+        log() << "Dropping index in rollback for collection: " << nss << ", UUID: " << uuid
+              << ", index: " << indexName;
+
         dropIndex(opCtx, indexCatalog, indexName, nss);
-        LOG(1) << "Dropped index in rollback: collection = " << nss.toString()
-               << ", index = " << indexName;
+
+        LOG(1) << "Dropped index in rollback for collection: " << nss << ", UUID: " << uuid
+               << ", index: " << indexName;
     }
 }
 
@@ -673,13 +675,13 @@ void rollbackDropIndexes(OperationContext* opCtx,
         BSONObj updatedNssObj = updatedNss.obj();
         indexSpec = indexSpec.addField(updatedNssObj.firstElement());
 
-        log() << "Creating index in rollback: collection = " << nss.toString()
-              << ", index = " << indexName;
+        log() << "Creating index in rollback for collection: " << nss << ", UUID: " << uuid
+              << ", index: " << indexName;
 
         createIndexForApplyOps(opCtx, indexSpec, nss, {});
 
-        LOG(1) << "Created index in rollback: collection = " << nss.toString()
-               << ", index = " << indexName;
+        LOG(1) << "Created index in rollback for collection: " << nss << ", UUID: " << uuid
+               << ", index: " << indexName;
     }
 }
 
@@ -766,7 +768,8 @@ void renameOutOfTheWay(OperationContext* opCtx, RenameCollectionInfo info, Datab
 
     LOG(2) << "Attempted to rename collection from " << info.renameFrom << " to " << info.renameTo
            << " but " << info.renameTo << " exists already. Temporarily renaming collection "
-           << info.renameTo << " out of the way to " << tempNss;
+           << info.renameTo << " with UUID " << tempRenameCollUUID << " out of the way to "
+           << tempNss;
 
     BSONObjBuilder tempRenameCmd;
     tempRenameCmd.append("renameCollection", info.renameTo.ns());
@@ -793,8 +796,8 @@ void rollbackRenameCollection(OperationContext* opCtx, UUID uuid, RenameCollecti
     std::string dbName = info.renameFrom.db().toString();
     BSONObj ui = uuid.toBSON();
 
-    log() << "Attempting to rename collection with nss " << info.renameFrom << " to "
-          << info.renameTo << ", and UUID: " << uuid;
+    log() << "Attempting to rename collection with UUID: " << uuid << ", from: " << info.renameFrom
+          << ", to: " << info.renameTo;
     Lock::DBLock dbLock(opCtx, dbName, MODE_X);
     auto db = dbHolder().openDb(opCtx, dbName);
     invariant(db);
@@ -831,8 +834,8 @@ void rollbackRenameCollection(OperationContext* opCtx, UUID uuid, RenameCollecti
         throw RSFatalException("Unable to rollback renameCollection command");
     }
 
-    LOG(1) << "Renamed collection from " << info.renameFrom.ns() << "to " << info.renameTo.ns()
-           << " with uuid: " << uuid;
+    LOG(1) << "Renamed collection with UUID: " << uuid << ", from: " << info.renameFrom
+           << ", to: " << info.renameTo;
 }
 
 Status _syncRollback(OperationContext* opCtx,
@@ -938,8 +941,8 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
         NamespaceString nss = catalog.lookupNSSByUUID(uuid);
 
         try {
-            LOG(2) << "Refetching document, namespace: " << nss.toString()
-                   << ", _id: " << redact(doc._id);
+            LOG(2) << "Refetching document, collection: " << nss << ", UUID: " << uuid << ", "
+                   << redact(doc._id);
             // TODO : Slow. Lots of round trips.
             numFetched++;
 
@@ -1014,14 +1017,14 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
         invariant(!fixUpInfo.collectionsToResyncMetadata.count(uuid));
 
         NamespaceString nss = UUIDCatalog::get(opCtx).lookupNSSByUUID(uuid);
-        log() << "Dropping collection with UUID: " << uuid << " and nss: " << nss;
+        log() << "Dropping collection: " << nss << ", UUID: " << uuid;
         AutoGetDb dbLock(opCtx, nss.db(), MODE_X);
 
         Database* db = dbLock.getDb();
         if (db) {
             Collection* collection = UUIDCatalog::get(opCtx).lookupCollectionByUUID(uuid);
             dropCollection(opCtx, nss, collection, db);
-            LOG(1) << "Dropped collection with UUID: " << uuid << " and nss: " << nss;
+            LOG(1) << "Dropped collection: " << nss << ", UUID: " << uuid;
         }
     }
 
@@ -1046,7 +1049,7 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
         const auto& optime = collPair.second.first;
         const auto& collectionNamespace = collPair.second.second;
         LOG(1) << "Rolling back collection pending being dropped for OpTime: " << optime
-               << ", and namespace: " << collectionNamespace;
+               << ", collection: " << collectionNamespace;
         DropPendingCollectionReaper::get(opCtx)->rollBackDropPendingCollection(
             opCtx, optime, collectionNamespace);
     }
@@ -1061,9 +1064,9 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
         // occurs and then the collection is dropped. If we do not first re-create the
         // collection, we will not be able to retrieve the collection's catalog entries.
         for (auto uuid : fixUpInfo.collectionsToResyncMetadata) {
-            log() << "Resyncing collection metadata, uuid: " << uuid;
-
             NamespaceString nss = UUIDCatalog::get(opCtx).lookupNSSByUUID(uuid);
+
+            log() << "Resyncing collection metadata for collection: " << nss << ", UUID: " << uuid;
 
             Lock::DBLock dbLock(opCtx, nss.db(), MODE_X);
 
@@ -1139,7 +1142,7 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
 
             wuow.commit();
 
-            LOG(1) << "Resynced collection options for namespace: " << nss << ", and UUID: " << uuid
+            LOG(1) << "Resynced collection metadata for collection: " << nss << ", UUID: " << uuid
                    << ", with: " << redact(options.toBSON())
                    << ", to: " << redact(cce->getCollectionOptions(opCtx).toBSON());
         }
@@ -1241,7 +1244,7 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
                 }
 
                 if (idAndDoc.second.isEmpty()) {
-                    LOG(2) << "Deleting document with _id: " << redact(doc._id)
+                    LOG(2) << "Deleting document with: " << redact(doc._id)
                            << ", from collection: " << doc.ns << ", with UUID: " << uuid;
                     // If the document could not be found on the primary, deletes the document.
                     // TODO 1.6 : can't delete from a capped collection. Need to handle that
@@ -1304,8 +1307,8 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
                         }
                     }
                 } else {
-                    LOG(2) << "Updating document with _id: " << redact(doc._id)
-                           << ", from collection: " << nss << ", with UUID: " << uuid
+                    LOG(2) << "Updating document with: " << redact(doc._id)
+                           << ", from collection: " << doc.ns << ", UUID: " << uuid
                            << ", to: " << redact(idAndDoc.second);
                     // TODO faster...
                     updates++;
