@@ -1242,7 +1242,7 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
 
                 if (idAndDoc.second.isEmpty()) {
                     LOG(2) << "Deleting document with _id: " << redact(doc._id)
-                           << ", from collection: " << doc.ns << " with UUID: " << uuid;
+                           << ", from collection: " << doc.ns << ", with UUID: " << uuid;
                     // If the document could not be found on the primary, deletes the document.
                     // TODO 1.6 : can't delete from a capped collection. Need to handle that
                     // here.
@@ -1305,7 +1305,7 @@ void rollback_internal::syncFixUp(OperationContext* opCtx,
                     }
                 } else {
                     LOG(2) << "Updating document with _id: " << redact(doc._id)
-                           << ", from collection: " << nss << " with UUID: " << uuid
+                           << ", from collection: " << nss << ", with UUID: " << uuid
                            << ", to: " << redact(idAndDoc.second);
                     // TODO faster...
                     updates++;
