@@ -768,7 +768,7 @@ void renameOutOfTheWay(OperationContext* opCtx, RenameCollectionInfo info, Datab
 
     LOG(2) << "Attempted to rename collection from " << info.renameFrom << " to " << info.renameTo
            << " but " << info.renameTo << " exists already. Temporarily renaming collection "
-           << info.renameTo << " with UUID " << tempRenameCollUUID << " out of the way to "
+           << info.renameTo << " with UUID " << collection->uuid().get() << " out of the way to "
            << tempNss;
 
     BSONObjBuilder tempRenameCmd;
