@@ -321,10 +321,12 @@ public:
                 // Fourth, stableTimestamp >= initialDataTimestamp: Take stable checkpoint. Steady
                 // state case.
                 if (initialDataTimestamp.asULL() <= 1) {
+                    log() << "NO CHECKPOINT, NO IDT";
                     UniqueWiredTigerSession session = _sessionCache->getSession();
                     WT_SESSION* s = session->getSession();
                     invariantWTOK(s->checkpoint(s, "use_timestamp=false"));
                 } else if (!serverGlobalParams.enableMajorityReadConcern) {
+                    log() << "UNSTABLE EMRC=F CHECKPOINT";
                     UniqueWiredTigerSession session = _sessionCache->getSession();
                     WT_SESSION* s = session->getSession();
                     invariantWTOK(s->checkpoint(s, "use_timestamp=false"));
@@ -333,13 +335,13 @@ public:
                     // take place entirely based on the oplog size.
                     _lastStableCheckpointTimestamp.store(std::numeric_limits<uint64_t>::max());
                 } else if (stableTimestamp < initialDataTimestamp) {
-                    LOG_FOR_RECOVERY(2)
+                    LOG_FOR_RECOVERY(0)
                         << "Stable timestamp is behind the initial data timestamp, skipping "
                            "a checkpoint. StableTimestamp: "
                         << stableTimestamp.toString()
                         << " InitialDataTimestamp: " << initialDataTimestamp.toString();
                 } else {
-                    LOG_FOR_RECOVERY(2) << "Performing stable checkpoint. StableTimestamp: "
+                    LOG_FOR_RECOVERY(0) << "Performing stable checkpoint. StableTimestamp: "
                                         << stableTimestamp;
 
                     // This is the smallest possible value that WT will take a stable checkpoint
@@ -930,7 +932,7 @@ Status WiredTigerKVEngine::_rebuildIdent(WT_SESSION* session, const char* uri) {
 }
 
 int WiredTigerKVEngine::flushAllFiles(OperationContext* opCtx, bool sync) {
-    LOG(1) << "WiredTigerKVEngine::flushAllFiles";
+    LOG(0) << "WiredTigerKVEngine::flushAllFiles";
     if (_ephemeral) {
         return 0;
     }

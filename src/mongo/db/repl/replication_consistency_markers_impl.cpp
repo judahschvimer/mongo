@@ -84,6 +84,7 @@ boost::optional<MinValidDocument> ReplicationConsistencyMarkersImpl::_getMinVali
 
     auto minValid =
         MinValidDocument::parse(IDLParserErrorContext("MinValidDocument"), result.getValue());
+    log() << "MINVALID: " << minValid.toBSON();
     return minValid;
 }
 
@@ -257,7 +258,7 @@ void ReplicationConsistencyMarkersImpl::removeOldOplogDeleteFromPointField(
 void ReplicationConsistencyMarkersImpl::setAppliedThrough(OperationContext* opCtx,
                                                           const OpTime& optime) {
     invariant(!optime.isNull());
-    LOG(3) << "setting appliedThrough to: " << optime.toString() << "(" << optime.toBSON() << ")";
+    LOG(0) << "setting appliedThrough to: " << optime.toString() << "(" << optime.toBSON() << ")";
 
     // We set the 'appliedThrough' to the provided timestamp. The 'appliedThrough' is only valid
     // in checkpoints that contain all writes through this timestamp since it indicates the top of
@@ -271,7 +272,7 @@ void ReplicationConsistencyMarkersImpl::setAppliedThrough(OperationContext* opCt
 
 void ReplicationConsistencyMarkersImpl::clearAppliedThrough(OperationContext* opCtx,
                                                             const Timestamp& writeTimestamp) {
-    LOG(3) << "clearing appliedThrough at: " << writeTimestamp.toString();
+    LOG(0) << "clearing appliedThrough at: " << writeTimestamp.toString();
 
     TimestampedBSONObj update;
     update.timestamp = writeTimestamp;
@@ -286,10 +287,10 @@ OpTime ReplicationConsistencyMarkersImpl::getAppliedThrough(OperationContext* op
 
     auto appliedThrough = doc->getAppliedThrough();
     if (!appliedThrough) {
-        LOG(3) << "No appliedThrough OpTime set, returning empty appliedThrough OpTime.";
+        LOG(0) << "No appliedThrough OpTime set, returning empty appliedThrough OpTime.";
         return {};
     }
-    LOG(3) << "returning appliedThrough: " << appliedThrough->toString() << "("
+    LOG(0) << "returning appliedThrough: " << appliedThrough->toString() << "("
            << appliedThrough->toBSON() << ")";
 
     return appliedThrough.get();
