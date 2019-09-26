@@ -389,8 +389,8 @@ other nodes, it will still stay primary.
 The `replSetUpdatePosition` command contains the following information:
 
 1. An `optimes` array containing an object for each live replica set member. This information is
-filled in by the `ReplicationCoordinator` with information from its `SlaveInfo`. Nodes that are
-believed to be down are not included. Each node contains:
+   filled in by the `ReplicationCoordinator` with information from its `SlaveInfo`. Nodes that are
+   believed to be down are not included. Each node contains:
 
     1. last durable OpTime
     2. last applied OpTime
@@ -398,7 +398,7 @@ believed to be down are not included. Each node contains:
     4. `ReplicaSetConfig` version
 
 2. `ReplSetMetadata`. Usually this only comes in responses, but here it comes in the request as
-well.
+   well.
 
 When a node receives a `replSetUpdatePosition` command, the first thing it does is have the
 `ReplicationCoordinator` process the `ReplSetMetadata` as before.
