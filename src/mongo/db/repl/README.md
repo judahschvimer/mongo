@@ -148,12 +148,12 @@ Otherwise, it iterates through all of the nodes and sees which one is the best.
 
 * First the secondary checks the `TopologyCoordinator`'s cached view of the replica set for the
   latest OpTime known to be on the primary. Secondaries do not sync from nodes whose newest oplog
-entry is more than
-[`maxSyncSourceLagSecs`](https://github.com/mongodb/mongo/blob/r3.4.2/src/mongo/db/repl/topology_coordinator_impl.cpp#L227-L240)
-seconds behind the primary's newest oplog entry.
+  entry is more than
+  [`maxSyncSourceLagSecs`](https://github.com/mongodb/mongo/blob/r3.4.2/src/mongo/db/repl/topology_coordinator_impl.cpp#L227-L240)
+  seconds behind the primary's newest oplog entry.
 * Secondaries then loop through each node and choose the closest node that satisfies [various
   criteria](https://github.com/mongodb/mongo/blob/r3.4.2/src/mongo/db/repl/topology_coordinator_impl.cpp#L162-L363).
-“Closest” here is determined by the lowest ping time to each node.
+  “Closest” here is determined by the lowest ping time to each node.
 * If no node satisfies the necessary criteria, then the `BackgroundSync` waits 1 second and restarts
   the sync source selection process.
 
@@ -166,11 +166,11 @@ make sure it actually is able to fetch from the sync source candidate’s oplog.
   source for some time and then tries to find a new sync source candidate.
 * If the oldest entry in the sync source candidate's oplog is newer than the node's newest entry,
   then the node blacklists that sync source candidate as well because the candidate is too far
-ahead.
+  ahead.
 * During initial sync, rollback, or recovery from unclean shutdown, nodes will set a specific
   OpTime, **`minValid`**, that they must reach before it is safe to read from the node and before
-the node can transition into SECONDARY state. If the secondary has a `minValid`, then the sync
-source candidate is checked for that `minValid` entry.
+  the node can transition into SECONDARY state. If the secondary has a `minValid`, then the sync
+  source candidate is checked for that `minValid` entry.
 * The sync source's **RollbackID** is also fetched to be checked after the first batch is returned
   by the `OplogFetcher`.
 
@@ -267,7 +267,7 @@ It includes:
 1. The upstream node's last committed OpTime
 2. The current term.
 3. The `ReplicaSetConfig` version (this is used to determine if a reconfig has occurred on the
-upstream node that hasn't been registered by the downstream node yet).
+   upstream node that hasn't been registered by the downstream node yet).
 4. The replica set ID.
 
 If the metadata has a different config version than the downstream node's config version, then the
@@ -285,10 +285,10 @@ OpTime and in sharding in some places. Otherwise it is ignored.
 `OplogQueryMetadata` only comes with `OplogFetcher` responses. It includes:
 
 1. The upstream node's last committed OpTime. This is the most recent operation that would be
-reflected in the snapshot used for `readConcern: majority` reads.
+   reflected in the snapshot used for `readConcern: majority` reads.
 2. The upstream node's last applied OpTime.
 3. The index (as specified by the `ReplicaSetConfig`) of the node that the upstream node thinks is
-primary.
+   primary.
 4. The index of the upstream node's sync source.
 
 If the metadata says there is still a primary, the downstream node resets its election timeout into
@@ -527,11 +527,11 @@ if it should grant a vote. The vote is rejected if:
 2. The config versions do not match.
 3. The replica set name does not match.
 4. The last committed OpTime that comes in the vote request is older than the voter's last applied
-OpTime.
+   OpTime.
 5. If it's not a dry-run election and the voter has already voted in this term.
 6. If the voter is an arbiter and it can see a healthy primary of greater or equal priority. This is
-to prevent primary flapping when there are two nodes that can't talk to each other and an arbiter
-that can talk to both.
+   to prevent primary flapping when there are two nodes that can't talk to each other and an arbiter
+   that can talk to both.
 
 Whenever a node votes for itself, or another node, it records that "LastVote" information durably to
 the `local.replset.election` collection. This information is read into memory at startup and used in
