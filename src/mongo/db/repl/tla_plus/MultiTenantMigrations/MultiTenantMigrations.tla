@@ -19,7 +19,8 @@ CONSTANTS RecUnstarted, RecInconsistent, RecLagged, RecReady
 \* donor states
 CONSTANTS DonUnstarted, DonDataSync, DonBlocking, DonCommitted, DonAborted
 \* migration outcomes
-CONSTANTS MigUnstarted, MigInProgress, MigCommitted, MigAborted
+CONSTANTS MigNone, MigCommitted, MigAborted
+
 
 (**************************************************************************************************)
 (* Global variables                                                                               *)
@@ -30,7 +31,8 @@ VARIABLE recipientState
 VARIABLE donorState
 VARIABLE migrationOutcome
 
-vars == <<messages, recipientState, donorState>>
+stateVars == <<recipientState, donorState>>
+vars == <<messages, stateVars, migrationOutcome>>
 
 -------------------------------------------------------------------------------------------
 
@@ -84,36 +86,44 @@ Reply(response, request) ==
 (**************************************************************************************************)
 
 HandleDonorStartMigrationRequest(m) ==
-    /\ Reply([mtype |-> DonorStartMigrationResponse],
-            m)
     /\ recipientState' = RecInconsistent
     /\ donorState' = DonDataSync
     /\ UNCHANGED <<migrationOutcome>>
 
 HandleDonorStartMigrationResponse(m) ==
-    /\ Discard(m)
-    /\ UNCHANGED <<donorState, recipientState, migrationOutcome>>
+    /\ \/ /\ m.moutcome = MigNone
+          /\ UNCHANGED <<migrationOutcome>>
+       \/ /\ m.moutcome = MigCommitted
+          /\ migrationOutcome' = MigCommitted
+       \/ /\ m.moutcome = MigAborted
+          /\ migrationOutcome' = MigAborted
+    /\ UNCHANGED <<donorState, recipientState>>
 
 (******************************************************************************)
 (* [ACTION]                                                                   *)
 (*                                                                            *)
 (******************************************************************************)
-DonorStartMigration ==
+
+CloudSendsDonorStartMigrationRequest ==
+    /\ migrationOutcome = MigNone
     /\ Send([mtype |-> DonorStartMigrationRequest])
-    /\ migrationOutcome' = MigInProgress
-    /\ UNCHANGED <<donorState, recipientState>>
+    /\ UNCHANGED <<stateVars, migrationOutcome>>
 
 RecipientBecomeConsistent ==
     /\ recipientState = RecInconsistent
     /\ recipientState' = RecLagged
-    /\ UNCHANGED <<donorState, migrationOutcome, messages>>
-
+    /\ donorState = DonDataSync
+    /\ donorState' = DonBlocking
+    /\ UNCHANGED <<migrationOutcome, messages>>
 
 RecipientCatchUp ==
+    /\ Send([mtype    |-> DonorStartMigrationResponse,
+             moutcome |-> MigCommitted])
     /\ recipientState = RecLagged
     /\ recipientState' = RecReady
-    /\ UNCHANGED <<donorState, migrationOutcome, messages>>
-
+    /\ donorState = DonBlocking
+    /\ donorState' = DonCommitted
+    /\ UNCHANGED <<migrationOutcome>>
 
 ----
 \* Network state transitions. Stolen from raft.tla
@@ -123,6 +133,7 @@ ReceiveMessage(m) ==
         /\ HandleDonorStartMigrationRequest(m)
     \/ /\ m.mtype = DonorStartMigrationResponse
         /\ HandleDonorStartMigrationResponse(m)
+    /\ Discard(m)
 
 \* The network duplicates a message
 DuplicateMessage(m) ==
@@ -158,11 +169,11 @@ Init ==
     /\ messages = [m \in {} |-> 0]
     /\ donorState = DonUnstarted
     /\ recipientState = RecUnstarted
-    /\ migrationOutcome = MigUnstarted
+    /\ migrationOutcome = MigNone
 
 RecipientBecomeConsistentAction == RecipientBecomeConsistent
 RecipientCatchUpAction == RecipientCatchUp
-DonorStartMigrationAction == DonorStartMigration
+CloudSendsDonorStartMigrationRequestAction == CloudSendsDonorStartMigrationRequest
 ReceiveMessageAction == \E m \in DOMAIN messages : ReceiveMessage(m)
 DuplicateMessageAction == \E m \in DOMAIN messages : DuplicateMessage(m)
 DropMessageAction == \E m \in DOMAIN messages : DropMessage(m)
@@ -170,7 +181,7 @@ DropMessageAction == \E m \in DOMAIN messages : DropMessage(m)
 Next ==
     \/ RecipientBecomeConsistentAction
     \/ RecipientCatchUpAction
-    \/ DonorStartMigrationAction
+    \/ CloudSendsDonorStartMigrationRequestAction
     \/ ReceiveMessageAction
     \/ DuplicateMessageAction
     \/ DropMessageAction
