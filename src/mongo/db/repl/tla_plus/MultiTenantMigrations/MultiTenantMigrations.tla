@@ -14,13 +14,23 @@ EXTENDS Integers, FiniteSets, Sequences, TLC
 
 CONSTANTS DonorStartMigrationRequest, DonorStartMigrationResponse
 
+\* recipient states
+CONSTANTS RecUnstarted, RecInconsistent, RecLagged, RecReady
+\* donor states
+CONSTANTS DonUnstarted, DonDataSync, DonBlocking, DonCommitted, DonAborted
+\* migration outcomes
+CONSTANTS MigUnstarted, MigInProgress, MigCommitted, MigAborted
+
 (**************************************************************************************************)
 (* Global variables                                                                               *)
 (**************************************************************************************************)
 
 VARIABLE messages
+VARIABLE recipientState
+VARIABLE donorState
+VARIABLE migrationOutcome
 
-vars == <<messages>>
+vars == <<messages, recipientState, donorState>>
 
 -------------------------------------------------------------------------------------------
 
@@ -76,11 +86,13 @@ Reply(response, request) ==
 HandleDonorStartMigrationRequest(m) ==
     /\ Reply([mtype |-> DonorStartMigrationResponse],
             m)
-    /\ UNCHANGED <<>>
+    /\ recipientState' = RecInconsistent
+    /\ donorState' = DonDataSync
+    /\ UNCHANGED <<migrationOutcome>>
 
 HandleDonorStartMigrationResponse(m) ==
     /\ Discard(m)
-    /\ UNCHANGED <<>>
+    /\ UNCHANGED <<donorState, recipientState, migrationOutcome>>
 
 (******************************************************************************)
 (* [ACTION]                                                                   *)
@@ -88,7 +100,20 @@ HandleDonorStartMigrationResponse(m) ==
 (******************************************************************************)
 DonorStartMigration ==
     /\ Send([mtype |-> DonorStartMigrationRequest])
-    /\ UNCHANGED <<>>
+    /\ migrationOutcome' = MigInProgress
+    /\ UNCHANGED <<donorState, recipientState>>
+
+RecipientBecomeConsistent ==
+    /\ recipientState = RecInconsistent
+    /\ recipientState' = RecLagged
+    /\ UNCHANGED <<donorState, migrationOutcome, messages>>
+
+
+RecipientCatchUp ==
+    /\ recipientState = RecLagged
+    /\ recipientState' = RecReady
+    /\ UNCHANGED <<donorState, migrationOutcome, messages>>
+
 
 ----
 \* Network state transitions. Stolen from raft.tla
@@ -102,12 +127,12 @@ ReceiveMessage(m) ==
 \* The network duplicates a message
 DuplicateMessage(m) ==
     /\ Send(m)
-    /\ UNCHANGED <<>>
+    /\ UNCHANGED <<donorState, recipientState, migrationOutcome>>
 
 \* The network drops a message
 DropMessage(m) ==
     /\ Discard(m)
-    /\ UNCHANGED <<>>
+    /\ UNCHANGED <<donorState, recipientState, migrationOutcome>>
 
 ----
 
@@ -115,6 +140,11 @@ DropMessage(m) ==
 (* Correctness Properties                                                                         *)
 (**************************************************************************************************)
 
+RecipientInconsistentAtCommit ==
+    /\ migrationOutcome = MigCommitted
+    /\ recipientState /= RecReady
+
+RecipientConsistentAtCommit == ~RecipientInconsistentAtCommit
 
 (**************************************************************************************************)
 (* Liveness properties                                                                            *)
@@ -126,17 +156,20 @@ DropMessage(m) ==
 (**************************************************************************************************)
 Init ==
     /\ messages = [m \in {} |-> 0]
+    /\ donorState = DonUnstarted
+    /\ recipientState = RecUnstarted
+    /\ migrationOutcome = MigUnstarted
 
-DonorStartMigrationAction ==
-    DonorStartMigration
-ReceiveMessageAction ==
-    \/ \E m \in DOMAIN messages : ReceiveMessage(m)
-DuplicateMessageAction ==
-    \/ \E m \in DOMAIN messages : DuplicateMessage(m)
-DropMessageAction ==
-    \/ \E m \in DOMAIN messages : DropMessage(m)
+RecipientBecomeConsistentAction == RecipientBecomeConsistent
+RecipientCatchUpAction == RecipientCatchUp
+DonorStartMigrationAction == DonorStartMigration
+ReceiveMessageAction == \E m \in DOMAIN messages : ReceiveMessage(m)
+DuplicateMessageAction == \E m \in DOMAIN messages : DuplicateMessage(m)
+DropMessageAction == \E m \in DOMAIN messages : DropMessage(m)
 
 Next ==
+    \/ RecipientBecomeConsistentAction
+    \/ RecipientCatchUpAction
     \/ DonorStartMigrationAction
     \/ ReceiveMessageAction
     \/ DuplicateMessageAction
