@@ -30,9 +30,11 @@ VARIABLE messages
 VARIABLE recipientState
 VARIABLE donorState
 VARIABLE migrationOutcome
+VARIABLE activeDonorStartMigrationRequests
 
 stateVars == <<recipientState, donorState>>
-vars == <<messages, stateVars, migrationOutcome>>
+messageVars == <<messages, activeDonorStartMigrationRequests>>
+vars == <<messageVars, stateVars, migrationOutcome>>
 
 -------------------------------------------------------------------------------------------
 
@@ -54,7 +56,11 @@ WithMessage(m, msgs) ==
 \* a new bag of messages with one less m in it.
 WithoutMessage(m, msgs) ==
     IF m \in DOMAIN msgs THEN
-        [msgs EXCEPT ![m] = msgs[m] - 1]
+        IF msgs[m] = 1 THEN
+            \* Remove message m from the bag.
+            [n \in DOMAIN msgs \ {m} |-> msgs[n]]
+        ELSE
+            [msgs EXCEPT ![m] = msgs[m] - 1]
     ELSE
         msgs
 
@@ -86,8 +92,15 @@ Reply(response, request) ==
 (**************************************************************************************************)
 
 HandleDonorStartMigrationRequest(m) ==
-    /\ recipientState' = RecInconsistent
-    /\ donorState' = DonDataSync
+    /\ IF activeDonorStartMigrationRequests > 0 THEN
+          /\ activeDonorStartMigrationRequests' = activeDonorStartMigrationRequests + 1
+          /\ UNCHANGED <<donorState, recipientState>>
+       ELSE
+          /\ donorState = DonUnstarted
+          /\ recipientState' = RecInconsistent
+          /\ donorState' = DonDataSync
+          /\ activeDonorStartMigrationRequests' = activeDonorStartMigrationRequests + 1
+
     /\ UNCHANGED <<migrationOutcome>>
 
 HandleDonorStartMigrationResponse(m) ==
@@ -97,7 +110,14 @@ HandleDonorStartMigrationResponse(m) ==
           /\ migrationOutcome' = MigCommitted
        \/ /\ m.moutcome = MigAborted
           /\ migrationOutcome' = MigAborted
-    /\ UNCHANGED <<donorState, recipientState>>
+    /\ UNCHANGED <<donorState, recipientState, activeDonorStartMigrationRequests>>
+
+RespondToDonorStartMigration(status) ==
+    /\ activeDonorStartMigrationRequests > 0
+    /\ activeDonorStartMigrationRequests' = activeDonorStartMigrationRequests - 1
+    /\ Send([mtype    |-> DonorStartMigrationResponse,
+             moutcome |-> status])
+
 
 (******************************************************************************)
 (* [ACTION]                                                                   *)
@@ -107,43 +127,48 @@ HandleDonorStartMigrationResponse(m) ==
 CloudSendsDonorStartMigrationRequest ==
     /\ migrationOutcome = MigNone
     /\ Send([mtype |-> DonorStartMigrationRequest])
-    /\ UNCHANGED <<stateVars, migrationOutcome>>
+    /\ UNCHANGED <<stateVars, migrationOutcome, activeDonorStartMigrationRequests>>
 
 RecipientBecomeConsistent ==
     /\ recipientState = RecInconsistent
     /\ recipientState' = RecLagged
     /\ donorState = DonDataSync
     /\ donorState' = DonBlocking
-    /\ UNCHANGED <<migrationOutcome, messages>>
+    /\ UNCHANGED <<migrationOutcome, messageVars>>
 
 RecipientCatchUp ==
-    /\ Send([mtype    |-> DonorStartMigrationResponse,
-             moutcome |-> MigCommitted])
     /\ recipientState = RecLagged
     /\ recipientState' = RecReady
     /\ donorState = DonBlocking
     /\ donorState' = DonCommitted
+    /\ RespondToDonorStartMigration(MigCommitted)
     /\ UNCHANGED <<migrationOutcome>>
+
+RecipientFailsMigration ==
+    /\ recipientState /= RecReady
+    /\ donorState' = DonAborted
+    /\ RespondToDonorStartMigration(MigAborted)
+    /\ UNCHANGED <<migrationOutcome, recipientState>>
 
 ----
 \* Network state transitions. Stolen from raft.tla
 
 ReceiveMessage(m) ==
-    \/ /\ m.mtype = DonorStartMigrationRequest
-        /\ HandleDonorStartMigrationRequest(m)
-    \/ /\ m.mtype = DonorStartMigrationResponse
-        /\ HandleDonorStartMigrationResponse(m)
+    /\ \/ /\ m.mtype = DonorStartMigrationRequest
+          /\ HandleDonorStartMigrationRequest(m)
+       \/ /\ m.mtype = DonorStartMigrationResponse
+          /\ HandleDonorStartMigrationResponse(m)
     /\ Discard(m)
 
 \* The network duplicates a message
 DuplicateMessage(m) ==
     /\ Send(m)
-    /\ UNCHANGED <<donorState, recipientState, migrationOutcome>>
+    /\ UNCHANGED <<donorState, recipientState, migrationOutcome, activeDonorStartMigrationRequests>>
 
 \* The network drops a message
 DropMessage(m) ==
     /\ Discard(m)
-    /\ UNCHANGED <<donorState, recipientState, migrationOutcome>>
+    /\ UNCHANGED <<donorState, recipientState, migrationOutcome, activeDonorStartMigrationRequests>>
 
 ----
 
@@ -170,9 +195,11 @@ Init ==
     /\ donorState = DonUnstarted
     /\ recipientState = RecUnstarted
     /\ migrationOutcome = MigNone
+    /\ activeDonorStartMigrationRequests = 0
 
 RecipientBecomeConsistentAction == RecipientBecomeConsistent
 RecipientCatchUpAction == RecipientCatchUp
+RecipientFailsMigrationAction == RecipientFailsMigration
 CloudSendsDonorStartMigrationRequestAction == CloudSendsDonorStartMigrationRequest
 ReceiveMessageAction == \E m \in DOMAIN messages : ReceiveMessage(m)
 DuplicateMessageAction == \E m \in DOMAIN messages : DuplicateMessage(m)
@@ -181,6 +208,7 @@ DropMessageAction == \E m \in DOMAIN messages : DropMessage(m)
 Next ==
     \/ RecipientBecomeConsistentAction
     \/ RecipientCatchUpAction
+    \/ RecipientFailsMigrationAction
     \/ CloudSendsDonorStartMigrationRequestAction
     \/ ReceiveMessageAction
     \/ DuplicateMessageAction
