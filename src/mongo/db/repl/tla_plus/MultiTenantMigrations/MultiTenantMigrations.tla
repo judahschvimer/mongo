@@ -13,6 +13,10 @@
 EXTENDS Integers, FiniteSets, Sequences, TLC
 
 CONSTANTS DonorStartMigrationRequest, DonorStartMigrationResponse
+CONSTANTS RecipientSyncData1Request, RecipientSyncData1Response
+CONSTANTS RecipientSyncData2Request, RecipientSyncData2Response
+CONSTANTS DonorForgetMigrationRequest, DonorForgetMigrationResponse
+CONSTANTS RecipientForgetMigrationRequest, RecipientForgetMigrationResponse
 
 \* recipient states
 CONSTANTS RecUnstarted, RecInconsistent, RecLagged, RecReady
