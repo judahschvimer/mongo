@@ -35,26 +35,26 @@ VARIABLE recipientState
 VARIABLE donorState
 VARIABLE migrationOutcome
 VARIABLE activeDonorStartMigrationRequests
+VARIABLE totalMessages
 
 stateVars == <<recipientState, donorState>>
-messageVars == <<messages, activeDonorStartMigrationRequests>>
+messageVars == <<messages, activeDonorStartMigrationRequests, totalMessages>>
 vars == <<messageVars, stateVars, migrationOutcome>>
 
 -------------------------------------------------------------------------------------------
 
 (**************************************************************************************************)
-(* Generic helper operators                                                                       *)
+(* Network Helpers, Stolen from Raft.tla                                                          *)
 (**************************************************************************************************)
-
-\* Stolen from Raft.tla
 
 \* Helper for Send and Reply. Given a message m and bag of messages, return a
 \* new bag of messages with one more m in it.
 WithMessage(m, msgs) ==
-    IF m \in DOMAIN msgs THEN
-        [msgs EXCEPT ![m] = msgs[m] + 1]
-    ELSE
-        msgs @@ (m :> 1)
+    /\ totalMessages' = totalMessages + 1
+    /\  IF m \in DOMAIN msgs THEN
+            [msgs EXCEPT ![m] = msgs[m] + 1]
+        ELSE
+            msgs @@ (m :> 1)
 
 \* Helper for Discard and Reply. Given a message m and bag of messages, return
 \* a new bag of messages with one less m in it.
@@ -79,8 +79,6 @@ Discard(m) == messages' = WithoutMessage(m, messages)
 Reply(response, request) ==
     messages' = WithoutMessage(request, WithMessage(response, messages))
 
-\* Done stealing from Raft.tla
-
 -------------------------------------------------------------------------------------------
 
 (******************************************************************************)
@@ -92,18 +90,55 @@ Reply(response, request) ==
 (******************************************************************************)
 
 (**************************************************************************************************)
+(* Request and response sender helpers                                                            *)
+(**************************************************************************************************)
+
+DonorRespondsToDonorStartMigrationRequest(status) ==
+    /\ activeDonorStartMigrationRequests > 0
+    /\ activeDonorStartMigrationRequests' = activeDonorStartMigrationRequests - 1
+    /\ Send([mtype    |-> DonorStartMigrationResponse,
+             moutcome |-> status])
+
+DonorSendsRecipientSyncData1Request ==
+    /\ Send([mtype |-> RecipientSyncData1Request])
+
+RecipientRespondsToRecipientSyncData1Request ==
+    /\ Send([mtype |-> RecipientSyncData1Response])
+
+DonorSendsRecipientSyncData2Request ==
+    /\ Send([mtype |-> RecipientSyncData2Request])
+
+RecipientRespondsToRecipientSyncData2Request ==
+    /\ Send([mtype |-> RecipientSyncData2Response])
+
+DonorSendsRecipientForgetMigrationRequest ==
+    /\ Send([mtype |-> RecipientForgetMigrationRequest])
+
+RecipientRespondsToRecipientForgetMigrationRequest ==
+    /\ Send([mtype |-> RecipientForgetMigrationResponse])
+
+CloudSendsDonorForgetMigrationRequest ==
+    /\ Send([mtype |-> DonorForgetMigrationRequest])
+
+DonorRespondsToDonorForgetMigrationRequest ==
+    /\ Send([mtype |-> DonorForgetMigrationResponse])
+
+(**************************************************************************************************)
 (* Request and response handlers                                                                  *)
 (**************************************************************************************************)
 
 HandleDonorStartMigrationRequest(m) ==
     /\ IF activeDonorStartMigrationRequests > 0 THEN
+          \*  If the command is already running, this request joins it.
           /\ activeDonorStartMigrationRequests' = activeDonorStartMigrationRequests + 1
           /\ UNCHANGED <<donorState, recipientState>>
        ELSE
+          \* If the donor is unstarted, it starts, otherwise nothing happens.
           /\ donorState = DonUnstarted
-          /\ recipientState' = RecInconsistent
           /\ donorState' = DonDataSync
-          /\ activeDonorStartMigrationRequests' = activeDonorStartMigrationRequests + 1
+          /\ recipientState' = RecInconsistent
+          /\ activeDonorStartMigrationRequests' = 1
+          /\ DonorSendsRecipientSyncData1Request
 
     /\ UNCHANGED <<migrationOutcome>>
 
@@ -116,16 +151,33 @@ HandleDonorStartMigrationResponse(m) ==
           /\ migrationOutcome' = MigAborted
     /\ UNCHANGED <<donorState, recipientState, activeDonorStartMigrationRequests>>
 
-RespondToDonorStartMigration(status) ==
-    /\ activeDonorStartMigrationRequests > 0
-    /\ activeDonorStartMigrationRequests' = activeDonorStartMigrationRequests - 1
-    /\ Send([mtype    |-> DonorStartMigrationResponse,
-             moutcome |-> status])
+HandleRecipientSyncData1Request(m) ==
+    /\ donotState = DonUnstarted
+
+HandleRecipientSyncData1Response(m) ==
+    /\ donotState = DonUnstarted
+
+HandleRecipientSyncData2Request(m) ==
+    /\ donotState = DonUnstarted
+
+HandleRecipientSyncData2Response(m) ==
+    /\ donotState = DonUnstarted
+
+HandleDonorForgetMigrationRequest(m) ==
+    /\ donotState = DonUnstarted
+
+HandleDonorForgetMigrationResponse(m) ==
+    /\ donotState = DonUnstarted
+
+HandleRecipientForgetMigrationRequest(m) ==
+    /\ donotState = DonUnstarted
+
+HandleRecipientForgetMigrationResponse(m) ==
+    /\ donotState = DonUnstarted
 
 
 (******************************************************************************)
 (* [ACTION]                                                                   *)
-(*                                                                            *)
 (******************************************************************************)
 
 CloudSendsDonorStartMigrationRequest ==
@@ -145,36 +197,22 @@ RecipientCatchUp ==
     /\ recipientState' = RecReady
     /\ donorState = DonBlocking
     /\ donorState' = DonCommitted
-    /\ RespondToDonorStartMigration(MigCommitted)
+    /\ DonorRespondsToDonorStartMigrationRequest(MigCommitted)
     /\ UNCHANGED <<migrationOutcome>>
 
 RecipientFailsMigration ==
     /\ recipientState /= RecReady
     /\ donorState' = DonAborted
-    /\ RespondToDonorStartMigration(MigAborted)
+    /\ DonorRespondsToDonorStartMigrationRequest(MigAborted)
     /\ UNCHANGED <<migrationOutcome, recipientState>>
 
-----
-\* Network state transitions. Stolen from raft.tla
-
+\* Stolen from raft.tla
 ReceiveMessage(m) ==
     /\ \/ /\ m.mtype = DonorStartMigrationRequest
           /\ HandleDonorStartMigrationRequest(m)
        \/ /\ m.mtype = DonorStartMigrationResponse
           /\ HandleDonorStartMigrationResponse(m)
     /\ Discard(m)
-
-\* The network duplicates a message
-DuplicateMessage(m) ==
-    /\ Send(m)
-    /\ UNCHANGED <<donorState, recipientState, migrationOutcome, activeDonorStartMigrationRequests>>
-
-\* The network drops a message
-DropMessage(m) ==
-    /\ Discard(m)
-    /\ UNCHANGED <<donorState, recipientState, migrationOutcome, activeDonorStartMigrationRequests>>
-
-----
 
 (**************************************************************************************************)
 (* Correctness Properties                                                                         *)
@@ -200,14 +238,13 @@ Init ==
     /\ recipientState = RecUnstarted
     /\ migrationOutcome = MigNone
     /\ activeDonorStartMigrationRequests = 0
+    /\ totalMessages = 0
 
 RecipientBecomeConsistentAction == RecipientBecomeConsistent
 RecipientCatchUpAction == RecipientCatchUp
 RecipientFailsMigrationAction == RecipientFailsMigration
 CloudSendsDonorStartMigrationRequestAction == CloudSendsDonorStartMigrationRequest
 ReceiveMessageAction == \E m \in DOMAIN messages : ReceiveMessage(m)
-DuplicateMessageAction == \E m \in DOMAIN messages : DuplicateMessage(m)
-DropMessageAction == \E m \in DOMAIN messages : DropMessage(m)
 
 Next ==
     \/ RecipientBecomeConsistentAction
@@ -215,8 +252,6 @@ Next ==
     \/ RecipientFailsMigrationAction
     \/ CloudSendsDonorStartMigrationRequestAction
     \/ ReceiveMessageAction
-    \/ DuplicateMessageAction
-    \/ DropMessageAction
 
 Spec == Init /\ [][Next]_vars
 

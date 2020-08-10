@@ -3,13 +3,13 @@
 
 EXTENDS MultiTenantMigrations
 
-CONSTANT MaxMessagesLen
+CONSTANT MaxTotalMessages
 
 (**************************************************************************************************)
 (* State Constraint. Used for model checking only.                                                *)
 (**************************************************************************************************)
 
 StateConstraint ==
-    /\ Len(messages) < MaxMessagesLen
+    /\ totalMessages < MaxTotalMessages
 
 =============================================================================
