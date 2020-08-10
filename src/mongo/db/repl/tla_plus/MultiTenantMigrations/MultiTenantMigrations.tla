@@ -19,7 +19,7 @@ CONSTANTS DonorForgetMigrationRequest, DonorForgetMigrationResponse
 CONSTANTS RecipientForgetMigrationRequest, RecipientForgetMigrationResponse
 
 \* recipient states
-CONSTANTS RecUnstarted, RecInconsistent, RecLagged, RecReady
+CONSTANTS RecUnstarted, RecInconsistent, RecLagged, RecReady, RecAborted
 \* donor states
 CONSTANTS DonUnstarted, DonDataSync, DonBlocking, DonCommitted, DonAborted
 \* migration outcomes
@@ -152,28 +152,28 @@ HandleDonorStartMigrationResponse(m) ==
     /\ UNCHANGED <<donorState, recipientState, activeDonorStartMigrationRequests>>
 
 HandleRecipientSyncData1Request(m) ==
-    /\ donotState = DonUnstarted
+    /\ donorState = DonUnstarted
 
 HandleRecipientSyncData1Response(m) ==
-    /\ donotState = DonUnstarted
+    /\ donorState = DonUnstarted
 
 HandleRecipientSyncData2Request(m) ==
-    /\ donotState = DonUnstarted
+    /\ donorState = DonUnstarted
 
 HandleRecipientSyncData2Response(m) ==
-    /\ donotState = DonUnstarted
+    /\ donorState = DonUnstarted
 
 HandleDonorForgetMigrationRequest(m) ==
-    /\ donotState = DonUnstarted
+    /\ donorState = DonUnstarted
 
 HandleDonorForgetMigrationResponse(m) ==
-    /\ donotState = DonUnstarted
+    /\ donorState = DonUnstarted
 
 HandleRecipientForgetMigrationRequest(m) ==
-    /\ donotState = DonUnstarted
+    /\ donorState = DonUnstarted
 
 HandleRecipientForgetMigrationResponse(m) ==
-    /\ donotState = DonUnstarted
+    /\ donorState = DonUnstarted
 
 
 (******************************************************************************)
