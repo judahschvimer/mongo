@@ -152,7 +152,7 @@ HandleDonorStartMigrationResponse(m) ==
     /\ UNCHANGED <<donorState, recipientState, activeDonorStartMigrationRequests>>
 
 HandleRecipientSyncData1Request(m) ==
-    /\ donorState = DonUnstarted
+    /\ recipientState = RecUnstarted
 
 HandleRecipientSyncData1Response(m) ==
     /\ donorState = DonUnstarted
