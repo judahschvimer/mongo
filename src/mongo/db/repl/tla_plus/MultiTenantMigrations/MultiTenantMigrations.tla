@@ -37,9 +37,11 @@ VARIABLE migrationOutcome
 VARIABLE activeDonorStartMigrationRequests
 VARIABLE totalMessages
 
-stateVars == <<recipientState, donorState>>
-messageVars == <<messages, activeDonorStartMigrationRequests, totalMessages>>
-vars == <<messageVars, stateVars, migrationOutcome>>
+donorVars == <<donorState, activeDonorStartMigrationRequests>>
+recipientVars == <<recipientState>>
+cloudVars == <<migrationOutcome>>
+messageVars == <<messages, totalMessages>>
+vars == <<donorVars, recipientVars, CloudVars, messageVars>>
 
 -------------------------------------------------------------------------------------------
 
@@ -131,16 +133,14 @@ HandleDonorStartMigrationRequest(m) ==
     /\ IF activeDonorStartMigrationRequests > 0 THEN
           \*  If the command is already running, this request joins it.
           /\ activeDonorStartMigrationRequests' = activeDonorStartMigrationRequests + 1
-          /\ UNCHANGED <<donorState, recipientState>>
+          /\ UNCHANGED <<donorState>>
        ELSE
           \* If the donor is unstarted, it starts, otherwise nothing happens.
           /\ donorState = DonUnstarted
           /\ donorState' = DonDataSync
-          /\ recipientState' = RecInconsistent
           /\ activeDonorStartMigrationRequests' = 1
           /\ DonorSendsRecipientSyncData1Request
-
-    /\ UNCHANGED <<migrationOutcome>>
+    /\ UNCHANGED <<recipientVars, cloudVars,>>
 
 HandleDonorStartMigrationResponse(m) ==
     /\ \/ /\ m.moutcome = MigNone
@@ -149,33 +149,43 @@ HandleDonorStartMigrationResponse(m) ==
           /\ migrationOutcome' = MigCommitted
        \/ /\ m.moutcome = MigAborted
           /\ migrationOutcome' = MigAborted
-    /\ UNCHANGED <<donorState, recipientState, activeDonorStartMigrationRequests>>
+    /\ UNCHANGED <<donorVars, recipientVars>>
 
 HandleRecipientSyncData1Request(m) ==
     /\ recipientState = RecUnstarted
     /\ recipientState' = RecInconsistent
-
+    /\ UNCHANGED <<donorVars, cloudVars>>
 
 HandleRecipientSyncData1Response(m) ==
-    /\ donorState = DonUnstarted
+    /\ donorState = DonDataSync
+    /\ donorState' = DonBlocking
+    /\ UNCHANGED <<recipientVars, cloudVars>>
 
 HandleRecipientSyncData2Request(m) ==
-    /\ donorState = DonUnstarted
+    /\ recipientState = RecInconsistent
+    /\ recipientState' = RecLagged
+    /\ UNCHANGED <<donorVars, cloudVars>>
 
 HandleRecipientSyncData2Response(m) ==
-    /\ donorState = DonUnstarted
+    /\ donorState = DonBlocking
+    /\ donorState' = DonCommitted
+    /\ UNCHANGED <<recipientVars, cloudVars>>
 
 HandleDonorForgetMigrationRequest(m) ==
-    /\ donorState = DonUnstarted
+    /\ donorState' = DonAborted
+    /\ UNCHANGED <<recipientVars, cloudVars>>
 
 HandleDonorForgetMigrationResponse(m) ==
-    /\ donorState = DonUnstarted
+    /\ migrationOutcome = MigAborted
+    /\ UNCHANGED <<donorVars, recipientVars>>
 
 HandleRecipientForgetMigrationRequest(m) ==
-    /\ donorState = DonUnstarted
+    /\ recipientState' = RecAborted
+    /\ UNCHANGED <<donorVars, cloudVars>>
 
 HandleRecipientForgetMigrationResponse(m) ==
-    /\ donorState = DonUnstarted
+    \* Nothing happens on this response.
+    /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
 
 
 (******************************************************************************)
