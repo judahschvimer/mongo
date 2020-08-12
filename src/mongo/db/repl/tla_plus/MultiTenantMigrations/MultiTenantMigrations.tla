@@ -41,7 +41,7 @@ donorVars == <<donorState, activeDonorStartMigrationRequests>>
 recipientVars == <<recipientState>>
 cloudVars == <<migrationOutcome>>
 messageVars == <<messages, totalMessages>>
-vars == <<donorVars, recipientVars, CloudVars, messageVars>>
+vars == <<donorVars, recipientVars, cloudVars, messageVars>>
 
 -------------------------------------------------------------------------------------------
 
@@ -52,11 +52,10 @@ vars == <<donorVars, recipientVars, CloudVars, messageVars>>
 \* Helper for Send and Reply. Given a message m and bag of messages, return a
 \* new bag of messages with one more m in it.
 WithMessage(m, msgs) ==
-    /\ totalMessages' = totalMessages + 1
-    /\  IF m \in DOMAIN msgs THEN
-            [msgs EXCEPT ![m] = msgs[m] + 1]
-        ELSE
-            msgs @@ (m :> 1)
+    IF m \in DOMAIN msgs THEN
+        [msgs EXCEPT ![m] = msgs[m] + 1]
+    ELSE
+        msgs @@ (m :> 1)
 
 \* Helper for Discard and Reply. Given a message m and bag of messages, return
 \* a new bag of messages with one less m in it.
@@ -71,15 +70,13 @@ WithoutMessage(m, msgs) ==
         msgs
 
 \* Add a message to the bag of messages.
-Send(m) == messages' = WithMessage(m, messages)
+Send(m) ==
+    /\ messages' = WithMessage(m, messages)
+    /\ totalMessages' = totalMessages + 1
 
 \* Remove a message from the bag of messages. Used when a server is done
 \* processing a message.
 Discard(m) == messages' = WithoutMessage(m, messages)
-
-\* Combination of Send and Discard
-Reply(response, request) ==
-    messages' = WithoutMessage(request, WithMessage(response, messages))
 
 -------------------------------------------------------------------------------------------
 
@@ -140,7 +137,7 @@ HandleDonorStartMigrationRequest(m) ==
           /\ donorState' = DonDataSync
           /\ activeDonorStartMigrationRequests' = 1
           /\ DonorSendsRecipientSyncData1Request
-    /\ UNCHANGED <<recipientVars, cloudVars,>>
+    /\ UNCHANGED <<recipientVars, cloudVars>>
 
 HandleDonorStartMigrationResponse(m) ==
     /\ \/ /\ m.moutcome = MigNone
@@ -195,7 +192,7 @@ HandleRecipientForgetMigrationResponse(m) ==
 CloudSendsDonorStartMigrationRequest ==
     /\ migrationOutcome = MigNone
     /\ Send([mtype |-> DonorStartMigrationRequest])
-    /\ UNCHANGED <<stateVars, migrationOutcome, activeDonorStartMigrationRequests>>
+    /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
 
 RecipientBecomeConsistent ==
     /\ recipientState = RecInconsistent
