@@ -153,6 +153,8 @@ HandleDonorStartMigrationResponse(m) ==
 
 HandleRecipientSyncData1Request(m) ==
     /\ recipientState = RecUnstarted
+    /\ recipientState' = RecInconsistent
+
 
 HandleRecipientSyncData1Response(m) ==
     /\ donorState = DonUnstarted
@@ -212,6 +214,22 @@ ReceiveMessage(m) ==
           /\ HandleDonorStartMigrationRequest(m)
        \/ /\ m.mtype = DonorStartMigrationResponse
           /\ HandleDonorStartMigrationResponse(m)
+       \/ /\ m.mtype = RecipientSyncData1Request
+          /\ HandleRecipientSyncData1Request(m)
+       \/ /\ m.mtype = RecipientSyncData1Response
+          /\ HandleRecipientSyncData1Response(m)
+       \/ /\ m.mtype = RecipientSyncData2Request
+          /\ HandleRecipientSyncData2Request(m)
+       \/ /\ m.mtype = RecipientSyncData2Response
+          /\ HandleRecipientSyncData2Response(m)
+       \/ /\ m.mtype = DonorForgetMigrationRequest
+          /\ HandleDonorForgetMigrationRequest(m)
+       \/ /\ m.mtype = DonorForgetMigrationResponse
+          /\ HandleDonorForgetMigrationResponse(m)
+       \/ /\ m.mtype = RecipientForgetMigrationRequest
+          /\ HandleRecipientForgetMigrationRequest(m)
+       \/ /\ m.mtype = RecipientForgetMigrationResponse
+          /\ HandleRecipientForgetMigrationResponse(m)
     /\ Discard(m)
 
 (**************************************************************************************************)
