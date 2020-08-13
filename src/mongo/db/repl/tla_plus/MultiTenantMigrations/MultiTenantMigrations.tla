@@ -249,6 +249,8 @@ RecipientInconsistentAtCommit ==
 
 RecipientConsistentAtCommit == ~RecipientInconsistentAtCommit
 
+ObviousInvariant == migrationOutcome /= MigCommitted
+
 (**************************************************************************************************)
 (* Liveness properties                                                                            *)
 (**************************************************************************************************)
