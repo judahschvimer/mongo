@@ -104,11 +104,14 @@ HandleDonorStartMigrationRequest(m) ==
           /\ Discard(m)
           /\ UNCHANGED <<donorState>>
        ELSE
-          \* If the donor is unstarted, it starts, otherwise nothing happens.
-          /\ donorState = DonUnstarted
-          /\ donorState' = DonDataSync
-          /\ activeDonorStartMigrationRequests' = 1
-          /\ SendAndDiscard([mtype |-> RecipientSyncData1Request], m)
+            \* If the donor is unstarted, it starts, otherwise nothing happens.
+            /\ IF donorState = DonUnstarted THEN
+                    /\ donorState' = DonDataSync
+                    /\ activeDonorStartMigrationRequests' = 1
+                    /\ SendAndDiscard([mtype |-> RecipientSyncData1Request], m)
+               ELSE
+                    /\ Discard(m)
+                    /\ UNCHANGED <<donorVars>>
     /\ UNCHANGED <<recipientVars, cloudVars>>
 
 \* Cloud
@@ -124,29 +127,38 @@ HandleDonorStartMigrationResponse(m) ==
 
 \* Recipient
 HandleRecipientSyncData1Request(m) ==
-    /\ recipientState = RecUnstarted
-    /\ recipientState' = RecInconsistent
+    /\ IF recipientState = RecUnstarted THEN
+            recipientState' = RecInconsistent
+       ELSE
+            UNCHANGED <<recipientVars>>
     /\ Discard(m)
     /\ UNCHANGED <<donorVars, cloudVars>>
 
 \* Donor
 HandleRecipientSyncData1Response(m) ==
-    /\ donorState = DonDataSync
-    /\ donorState' = DonBlocking
-    /\ SendAndDiscard([mtype |-> RecipientSyncData2Request], m)
+    /\ IF donorState = DonDataSync THEN
+            /\ donorState' = DonBlocking
+            /\ SendAndDiscard([mtype |-> RecipientSyncData2Request], m)
+       ELSE
+            /\ Discard(m)
+            /\ UNCHANGED <<donorState>>
     /\ UNCHANGED <<activeDonorStartMigrationRequests, recipientVars, cloudVars>>
 
 \* Recipient
 HandleRecipientSyncData2Request(m) ==
-    /\ recipientState = RecInconsistent
-    /\ recipientState' = RecLagged
+    /\ IF recipientState = RecInconsistent THEN
+            recipientState' = RecLagged
+       ELSE
+            UNCHANGED <<recipientVars>>
     /\ Discard(m)
     /\ UNCHANGED <<donorVars, cloudVars>>
 
 \* Donor
 HandleRecipientSyncData2Response(m) ==
-    /\ donorState = DonBlocking
-    /\ donorState' = DonCommitted
+    /\ IF donorState = DonBlocking THEN
+            donorState' = DonCommitted
+        ELSE
+            UNCHANGED <<donorState>>
     /\ Discard(m)
     /\ UNCHANGED <<activeDonorStartMigrationRequests, recipientVars, cloudVars>>
 
@@ -185,6 +197,7 @@ CloudSendsDonorStartMigrationRequest ==
     /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
 
 CloudSendsDonorForgetMigrationRequest ==
+    /\ migrationOutcome \in {MigAborted, MigCommitted}
     /\ Send([mtype |-> DonorForgetMigrationRequest])
     /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
 
@@ -254,12 +267,18 @@ StateMachinesInconsistent ==
 
 StateMachinesConsistent == ~StateMachinesInconsistent
 
-ObviousInvariant == migrationOutcome /= MigCommitted
-
 (**************************************************************************************************)
 (* Liveness properties                                                                            *)
 (**************************************************************************************************)
 
+MigrationEventuallyCompletes ==
+    <> /\ recipientState \in {RecAborted, RecReady, RecForgotten}
+       /\ donorState \in {DonAborted, DonCommitted, DonForgotten}
+       /\ migrationOutcome \in {MigAborted, MigCommitted}
+
+MessageBagEventuallyEmpties ==
+    \* If the bag fills up, it eventually empties.
+    Cardinality(DOMAIN messages) > 0 ~> Cardinality(DOMAIN messages) = 0
 
 (**************************************************************************************************)
 (* Spec definition                                                                                *)
@@ -289,6 +308,9 @@ Next ==
     \/ DonorRespondsToDonorStartMigrationRequestAction
     \/ ReceiveMessageAction
 
-Spec == Init /\ [][Next]_vars
+Liveness ==
+    /\ WF_vars(ReceiveMessageAction)
+
+Spec == Init /\ [][Next]_vars /\ Liveness
 
 =============================================================================
