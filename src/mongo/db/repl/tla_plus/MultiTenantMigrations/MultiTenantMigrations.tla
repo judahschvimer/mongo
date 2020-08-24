@@ -145,9 +145,8 @@ HandleRecipientSyncData2Response(m) ==
     /\ UNCHANGED <<activeDonorStartMigrationRequests, recipientVars, cloudVars>>
 
 HandleDonorForgetMigrationRequest(m) ==
-    /\ donorState' = DonAborted
     /\ SendAndDiscard([mtype |-> RecipientForgetMigrationRequest], m)
-    /\ UNCHANGED <<activeDonorStartMigrationRequests, recipientVars, cloudVars>>
+    /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
 
 HandleDonorForgetMigrationResponse(m) ==
     /\ Discard(m)
