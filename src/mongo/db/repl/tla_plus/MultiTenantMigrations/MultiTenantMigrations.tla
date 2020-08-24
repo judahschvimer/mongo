@@ -6,7 +6,7 @@
 
 ----------------------------- MODULE MultiTenantMigrations -----------------------------
 \*
-\* A specification of MongoDB's multi-tenant migrations donor protocol.
+\* A specification of MongoDB's multi-tenant migrations state-machine protocol.
 \*
 
 EXTENDS Integers, FiniteSets, Sequences, TLC
@@ -18,9 +18,9 @@ CONSTANTS DonorForgetMigrationRequest, DonorForgetMigrationResponse
 CONSTANTS RecipientForgetMigrationRequest, RecipientForgetMigrationResponse
 
 \* recipient states
-CONSTANTS RecUnstarted, RecInconsistent, RecLagged, RecReady, RecAborted
+CONSTANTS RecUnstarted, RecInconsistent, RecLagged, RecReady, RecAborted, RecForgotten
 \* donor states
-CONSTANTS DonUnstarted, DonDataSync, DonBlocking, DonCommitted, DonAborted
+CONSTANTS DonUnstarted, DonDataSync, DonBlocking, DonCommitted, DonAborted, DonForgotten
 \* migration outcomes
 CONSTANTS MigNone, MigCommitted, MigAborted
 
@@ -96,6 +96,7 @@ SendAndDiscard(sendMessage, discardMessage) ==
 (* Request and response handlers                                                                  *)
 (**************************************************************************************************)
 
+\* Donor
 HandleDonorStartMigrationRequest(m) ==
     /\ IF activeDonorStartMigrationRequests > 0 THEN
           \*  If the command is already running, this request joins it.
@@ -110,6 +111,7 @@ HandleDonorStartMigrationRequest(m) ==
           /\ SendAndDiscard([mtype |-> RecipientSyncData1Request], m)
     /\ UNCHANGED <<recipientVars, cloudVars>>
 
+\* Cloud
 HandleDonorStartMigrationResponse(m) ==
     /\ \/ /\ m.moutcome = MigNone
           /\ UNCHANGED <<migrationOutcome>>
@@ -120,46 +122,57 @@ HandleDonorStartMigrationResponse(m) ==
     /\ Discard(m)
     /\ UNCHANGED <<donorVars, recipientVars>>
 
+\* Recipient
 HandleRecipientSyncData1Request(m) ==
     /\ recipientState = RecUnstarted
     /\ recipientState' = RecInconsistent
     /\ Discard(m)
     /\ UNCHANGED <<donorVars, cloudVars>>
 
+\* Donor
 HandleRecipientSyncData1Response(m) ==
     /\ donorState = DonDataSync
     /\ donorState' = DonBlocking
     /\ SendAndDiscard([mtype |-> RecipientSyncData2Request], m)
     /\ UNCHANGED <<activeDonorStartMigrationRequests, recipientVars, cloudVars>>
 
+\* Recipient
 HandleRecipientSyncData2Request(m) ==
     /\ recipientState = RecInconsistent
     /\ recipientState' = RecLagged
     /\ Discard(m)
     /\ UNCHANGED <<donorVars, cloudVars>>
 
+\* Donor
 HandleRecipientSyncData2Response(m) ==
     /\ donorState = DonBlocking
     /\ donorState' = DonCommitted
     /\ Discard(m)
     /\ UNCHANGED <<activeDonorStartMigrationRequests, recipientVars, cloudVars>>
 
+\* Donor
 HandleDonorForgetMigrationRequest(m) ==
+    \* Don't mark donor forgotten until recipient is.
     /\ SendAndDiscard([mtype |-> RecipientForgetMigrationRequest], m)
     /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
 
+\* Cloud
 HandleDonorForgetMigrationResponse(m) ==
+    \* We're done!
     /\ Discard(m)
     /\ UNCHANGED <<donorVars, cloudVars, recipientVars>>
 
+\* Recipient
 HandleRecipientForgetMigrationRequest(m) ==
+    /\ recipientState' = RecForgotten
     /\ SendAndDiscard([mtype |-> RecipientForgetMigrationResponse], m)
-    /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
+    /\ UNCHANGED <<donorVars, cloudVars>>
 
+\* Donor
 HandleRecipientForgetMigrationResponse(m) ==
-    \* Nothing happens on this response.
+    /\ donorState' = DonForgotten
     /\ SendAndDiscard([mtype |-> DonorForgetMigrationResponse], m)
-    /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
+    /\ UNCHANGED <<recipientVars, cloudVars, activeDonorStartMigrationRequests>>
 
 
 (******************************************************************************)
@@ -188,10 +201,9 @@ RecipientCatchesUp ==
     /\ UNCHANGED <<donorVars, cloudVars>>
 
 RecipientFailsMigration ==
-    /\ recipientState /= RecReady
+    /\ recipientState \notin {RecReady, RecForgotten}
     /\ recipientState' = RecAborted
-    \* TODO send error
-    /\ UNCHANGED <<migrationOutcome, donorVars>>
+    /\ UNCHANGED <<cloudVars, donorVars, messageVars>>
 
 DonorRespondsToDonorStartMigrationRequest ==
     /\ donorState \in {DonAborted, DonCommitted}
@@ -234,11 +246,11 @@ ReceiveMessage(m) ==
 
 StateMachinesInconsistent ==
     \/ /\ migrationOutcome = MigCommitted
-       /\ recipientState /= RecReady
+       /\ recipientState \notin {RecReady, RecForgotten}
     \/ /\ migrationOutcome = MigCommitted
-       /\ donorState /= DonCommitted
+       /\ donorState \notin {DonCommitted, DonForgotten}
     \/ /\ donorState = DonCommitted
-       /\ recipientState /= RecReady
+       /\ recipientState \notin {RecReady, RecForgotten}
 
 StateMachinesConsistent == ~StateMachinesInconsistent
 
@@ -271,7 +283,7 @@ ReceiveMessageAction == \E m \in DOMAIN messages : ReceiveMessage(m)
 Next ==
     \/ RecipientBecomesConsistentAction
     \/ RecipientCatchesUpAction
-    \* \/ RecipientFailsMigrationAction
+    \/ RecipientFailsMigrationAction
     \/ CloudSendsDonorStartMigrationRequestAction
     \/ CloudSendsDonorForgetMigrationRequestAction
     \/ DonorRespondsToDonorStartMigrationRequestAction
