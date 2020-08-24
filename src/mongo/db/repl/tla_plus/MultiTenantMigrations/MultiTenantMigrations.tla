@@ -153,9 +153,8 @@ HandleDonorForgetMigrationResponse(m) ==
     /\ UNCHANGED <<donorVars, cloudVars, recipientVars>>
 
 HandleRecipientForgetMigrationRequest(m) ==
-    /\ recipientState' = RecAborted
     /\ SendAndDiscard([mtype |-> RecipientForgetMigrationResponse], m)
-    /\ UNCHANGED <<donorVars, cloudVars>>
+    /\ UNCHANGED <<donorVars, recipientVars, cloudVars>>
 
 HandleRecipientForgetMigrationResponse(m) ==
     \* Nothing happens on this response.
@@ -233,11 +232,15 @@ ReceiveMessage(m) ==
 (* Correctness Properties                                                                         *)
 (**************************************************************************************************)
 
-RecipientInconsistentAtCommit ==
-    /\ migrationOutcome = MigCommitted
-    /\ recipientState /= RecReady
+StateMachinesInconsistent ==
+    \/ /\ migrationOutcome = MigCommitted
+       /\ recipientState /= RecReady
+    \/ /\ migrationOutcome = MigCommitted
+       /\ donorState /= DonCommitted
+    \/ /\ donorState = DonCommitted
+       /\ recipientState /= RecReady
 
-RecipientConsistentAtCommit == ~RecipientInconsistentAtCommit
+StateMachinesConsistent == ~StateMachinesInconsistent
 
 ObviousInvariant == migrationOutcome /= MigCommitted
 
