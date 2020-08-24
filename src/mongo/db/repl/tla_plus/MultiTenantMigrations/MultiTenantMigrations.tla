@@ -9,7 +9,6 @@
 \* A specification of MongoDB's multi-tenant migrations donor protocol.
 \*
 
-
 EXTENDS Integers, FiniteSets, Sequences, TLC
 
 CONSTANTS DonorStartMigrationRequest, DonorStartMigrationResponse
@@ -24,7 +23,6 @@ CONSTANTS RecUnstarted, RecInconsistent, RecLagged, RecReady, RecAborted
 CONSTANTS DonUnstarted, DonDataSync, DonBlocking, DonCommitted, DonAborted
 \* migration outcomes
 CONSTANTS MigNone, MigCommitted, MigAborted
-
 
 (**************************************************************************************************)
 (* Global variables                                                                               *)
@@ -46,7 +44,7 @@ vars == <<donorVars, recipientVars, cloudVars, messageVars>>
 -------------------------------------------------------------------------------------------
 
 (**************************************************************************************************)
-(* Network Helpers, Stolen from Raft.tla                                                          *)
+(* Network Helpers, adapted from Raft.tla                                                         *)
 (**************************************************************************************************)
 
 \* Helper for Send and Reply. Given a message m and bag of messages, return a
@@ -215,7 +213,7 @@ RecipientFailsMigration ==
     /\ DonorRespondsToDonorStartMigrationRequest(MigAborted)
     /\ UNCHANGED <<migrationOutcome, recipientState>>
 
-\* Stolen from raft.tla
+\* Adapted from Raft.tla
 ReceiveMessage(m) ==
     /\ \/ /\ m.mtype = DonorStartMigrationRequest
           /\ HandleDonorStartMigrationRequest(m)
