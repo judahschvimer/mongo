@@ -591,5 +591,15 @@ TEST_F(TenantCollectionClonerTest, QueryFailure) {
     clonerThread.join();
 }
 
+TEST_F(TenantCollectionClonerTest, FindFailure) {
+    // Set up data for preliminary stages
+    _mockServer->setCommandReply("count", createCountResponse(0));
+    _mockServer->setCommandReply("listIndexes",
+                                 createCursorResponse(_nss.ns(), BSON_ARRAY(_idIndexSpec)));
+    _mockServer->setCommandReply("find", createFindResponse(ErrorCodes::OperationFailed));
+
+    auto cloner = makeCollectionCloner();
+    ASSERT_EQ(cloner->run(), ErrorCodes::OperationFailed);
+}
 }  // namespace repl
 }  // namespace mongo
