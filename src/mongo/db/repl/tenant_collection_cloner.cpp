@@ -267,7 +267,8 @@ void TenantCollectionCloner::runQuery() {
                        nullptr /* fieldsToReturn */,
                        QueryOption_NoCursorTimeout | QueryOption_SlaveOk |
                            (collectionClonerUsesExhaust ? QueryOption_Exhaust : 0),
-                       _collectionClonerBatchSize);
+                       _collectionClonerBatchSize,
+                       ReadConcernArgs(ReadConcernLevel::kMajorityReadConcern).toBSONInner());
     _dbWorkTaskRunner.join();
 }
 
