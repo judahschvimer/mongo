@@ -40,6 +40,7 @@
 #include "mongo/db/op_observer_impl.h"
 #include "mongo/db/op_observer_registry.h"
 #include "mongo/db/repl/oplog.h"
+#include "mongo/db/repl/oplog_buffer_collection.h"
 #include "mongo/db/repl/oplog_fetcher_mock.h"
 #include "mongo/db/repl/primary_only_service.h"
 #include "mongo/db/repl/primary_only_service_op_observer.h"
@@ -256,9 +257,14 @@ protected:
         return instance->_oplogFetcherClient.get();
     }
 
-    OplogFetcher* getDonorOplogFetcher(
+    OplogFetcherMock* getDonorOplogFetcher(
         const TenantMigrationRecipientService::Instance* instance) const {
-        return instance->_donorOplogFetcher.get();
+        return static_cast<OplogFetcherMock*>(instance->_donorOplogFetcher.get());
+    }
+
+    OplogBufferCollection* getDonorOplogBuffer(
+        const TenantMigrationRecipientService::Instance* instance) const {
+        return instance->_donorOplogBuffer.get();
     }
 
     const TenantMigrationRecipientDocument& getStateDoc(
@@ -1023,5 +1029,86 @@ TEST_F(TenantMigrationRecipientServiceTest, StoppingApplierAllowsCompletion) {
     ASSERT_NOT_OK(instance->getCompletionFuture().getNoThrow());
 }
 
+TEST_F(TenantMigrationRecipientServiceTest, TenantMigrationRecipientAddResumeTokenNoopsToBuffer) {
+    FailPointEnableBlock fp("fpAfterCollectionClonerDone",
+                            BSON("action"
+                                 << "stop"));
+    const UUID migrationUUID = UUID::gen();
+    const OpTime topOfOplogOpTime(Timestamp(5, 1), 1);
+
+    MockReplicaSet replSet("donorSet", 3, true /* hasPrimary */, true /*dollarPrefixHosts */);
+    insertTopOfOplog(&replSet, topOfOplogOpTime);
+
+    TenantMigrationRecipientDocument initialStateDocument(
+        migrationUUID,
+        replSet.getConnectionString(),
+        "tenantA",
+        ReadPreferenceSetting(ReadPreference::PrimaryOnly));
+
+    // Skip the cloners in this test, so we provide an empty list of databases.
+    MockRemoteDBServer* const _donorServer =
+        mongo::MockConnRegistry::get()->getMockRemoteDBServer(replSet.getPrimary());
+    _donorServer->setCommandReply("listDatabases", makeListDatabasesResponse({}));
+    _donorServer->setCommandReply("find", makeFindResponse());
+
+    // Hang the recipient service after starting the oplog fetcher.
+    auto oplogFetcherFP =
+        globalFailPointRegistry().find("fpAfterStartingOplogFetcherMigrationRecipientInstance");
+    auto initialTimesEntered = oplogFetcherFP->setMode(FailPoint::alwaysOn,
+                                                       0,
+                                                       BSON("action"
+                                                            << "hang"));
+
+    auto opCtx = makeOperationContext();
+    std::shared_ptr<TenantMigrationRecipientService::Instance> instance;
+    {
+        FailPointEnableBlock fp("pauseBeforeRunTenantMigrationRecipientInstance");
+        // Create and start the instance.
+        instance = TenantMigrationRecipientService::Instance::getOrCreate(
+            opCtx.get(), _service, initialStateDocument.toBSON());
+        ASSERT(instance.get());
+        instance->setCreateOplogFetcherFn_forTest(std::make_unique<CreateOplogFetcherMockFn>());
+    }
+
+    // Wait for the oplog fetcher to start.
+    oplogFetcherFP->waitForTimesEntered(initialTimesEntered + 1);
+
+    // Feed the oplog fetcher a resume token.
+    auto oplogFetcher = getDonorOplogFetcher(instance.get());
+    const Timestamp resumeToken(6, 2);
+    auto oplogEntry = makeOplogEntry(topOfOplogOpTime,
+                                     OpTypeEnum::kInsert,
+                                     NamespaceString("foo.bar") /* namespace */,
+                                     UUID::gen() /* uuid */,
+                                     BSON("doc" << 2) /* o */,
+                                     boost::none /* o2 */);
+    oplogFetcher->receiveBatch(17, {oplogEntry.toBSON()}, resumeToken);
+
+    auto oplogBuffer = getDonorOplogBuffer(instance.get());
+    ASSERT_EQUALS(oplogBuffer->getCount(), 2);
+
+    BSONObj insertDoc;
+    ASSERT_TRUE(oplogBuffer->tryPop(opCtx.get(), &insertDoc));
+    ASSERT_BSONOBJ_EQ(insertDoc, oplogEntry.toBSON());
+
+    BSONObj noopDoc;
+    ASSERT_TRUE(oplogBuffer->tryPop(opCtx.get(), &noopDoc));
+    OplogEntry noopEntry(noopDoc);
+    ASSERT_TRUE(noopEntry.getOpType() == OpTypeEnum::kNoop);
+    ASSERT_EQUALS(noopEntry.getTimestamp(), resumeToken);
+    ASSERT_EQUALS(noopEntry.getTerm().get(), topOfOplogOpTime.getTerm());
+    ASSERT_EQUALS(noopEntry.getNss(), NamespaceString(""));
+
+    ASSERT_TRUE(oplogBuffer->isEmpty());
+
+    // Let the recipient service complete.
+    oplogFetcherFP->setMode(FailPoint::off);
+
+    // Wait for task completion success.
+    ASSERT_OK(instance->getCompletionFuture().getNoThrow());
+
+    // TODO Ensure the applier doesn't write an extra noop in this case and that
+    // _lastBatchCompletedOpTimes gets updated.
+}
 }  // namespace repl
 }  // namespace mongo

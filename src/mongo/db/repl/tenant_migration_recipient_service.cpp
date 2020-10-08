@@ -455,6 +455,7 @@ void TenantMigrationRecipientService::Instance::_startOplogFetcher() {
         OplogFetcher::StartingPoint::kEnqueueFirstDoc,
         _getOplogFetcherFilter(),
         ReadConcernArgs(repl::ReadConcernLevel::kMajorityReadConcern),
+        true /* requestResumeToken */,
         "TenantOplogFetcher_" + getTenantId() + "_" + getMigrationUUID().toString());
     _donorOplogFetcher->setConnection(std::move(_oplogFetcherClient));
     uassertStatusOK(_donorOplogFetcher->startup());
@@ -467,16 +468,37 @@ Status TenantMigrationRecipientService::Instance::_enqueueDocuments(
 
     invariant(_donorOplogBuffer);
 
-    if (info.toApplyDocumentCount == 0)
-        return Status::OK();
-
     auto opCtx = cc().makeOperationContext();
-    // Wait for enough space.
-    _donorOplogBuffer->waitForSpace(opCtx.get(), info.toApplyDocumentBytes);
+    if (info.toApplyDocumentCount != 0) {
+        // Wait for enough space.
+        _donorOplogBuffer->waitForSpace(opCtx.get(), info.toApplyDocumentBytes);
 
-    // Buffer docs for later application.
-    _donorOplogBuffer->push(opCtx.get(), begin, end);
+        // Buffer docs for later application.
+        _donorOplogBuffer->push(opCtx.get(), begin, end);
+    }
+    if (info.resumeToken.isNull()) {
+        return Status(ErrorCodes::Error(5124600), "Resume token returned is null");
+    }
 
+    // We assign the resume token the same term as the last document in the batch. Since this
+    // noop should be the next operation in the oplog buffer, this will ensure it gets ordered
+    // correctly.
+    OpTime resumeToken = {info.resumeToken, info.lastDocument.getTerm()};
+    MutableOplogEntry noopEntry;
+    noopEntry.setOpType(repl::OpTypeEnum::kNoop);
+    noopEntry.setObject(BSON("msg"
+                             << "noop for resume token"
+                             << "tenantId" << getTenantId() << "migrationId"
+                             << getMigrationUUID()));
+    noopEntry.setOpTime(resumeToken);
+
+    // Use an empty namespace string so this op is ignored by the applier.
+    noopEntry.setNss({});
+    // Use an empty wall clock time since we have no wall clock time, but we must give it one, and we want it to be clearly fake.
+    noopEntry.setWallClockTime({});
+
+    OplogBuffer::Batch noopVec = {noopEntry.toBSON()};
+    _donorOplogBuffer->push(opCtx.get(), noopVec.cbegin(), noopVec.cend());
     return Status::OK();
 }
 

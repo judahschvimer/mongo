@@ -721,5 +721,28 @@ TEST_F(TenantOplogApplierTest, ApplyCRUD_WrongUUID) {
     applier.join();
 }
 
+TEST_F(TenantOplogApplierTest, ApplyNoop_Success) {
+    NamespaceString nss(dbName, "t");
+    Timestamp ts(5, 6);
+    auto op = BSON("op"
+                   << "n"
+                   << "ns"
+                   << ""
+                   << "ts" << ts << "t" << 1LL << "wall" << Date_t() << "o"
+                   << BSON("msg"
+                           << "foo"));
+    auto entry = OplogEntry(op);
+    pushOps({entry});
+    auto writerPool = makeTenantMigrationWriterPool();
+
+    TenantOplogApplier applier(
+        _migrationUuid, _tenantId, OpTime(), &_oplogBuffer, _executor, writerPool.get());
+    ASSERT_OK(applier.startup());
+    auto opAppliedFuture = applier.getNotificationForOpTime(entry.getOpTime());
+    ASSERT_OK(opAppliedFuture.getNoThrow().getStatus());
+    applier.shutdown();
+    applier.join();
+}
+
 }  // namespace repl
 }  // namespace mongo
