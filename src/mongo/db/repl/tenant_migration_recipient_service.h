@@ -265,6 +265,12 @@ public:
         void _getStartOpTimesFromDonor(WithLock);
 
         /**
+         * Gets the last term pushed into the oplog buffer. This is the term used for the noops
+         * written at the end of oplog fetcher batches, where the timestamp is the resumeToken.
+         */
+        long long _getLatestTermInOplogBuffer(OperationContext* opCtx) const;
+
+        /**
          * Pushes documents from oplog fetcher to oplog buffer.
          *
          * Returns a status even though it always returns OK, to conform the interface OplogFetcher

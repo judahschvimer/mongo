@@ -461,6 +461,18 @@ void TenantMigrationRecipientService::Instance::_startOplogFetcher() {
     uassertStatusOK(_donorOplogFetcher->startup());
 }
 
+long long TenantMigrationRecipientService::Instance::_getLatestTermInOplogBuffer(
+    OperationContext* opCtx) const {
+    auto lastObjPushed = _donorOplogBuffer->lastObjectPushed(opCtx);
+    if(lastObjPushed) {
+        auto lastEntryPushed = OplogEntry(*lastObjPushed);
+        if (lastEntryPushed.getTerm()) {
+            return *lastEntryPushed.getTerm();
+        }
+    }
+    return OpTime::kUninitializedTerm;
+}
+
 Status TenantMigrationRecipientService::Instance::_enqueueDocuments(
     OplogFetcher::Documents::const_iterator begin,
     OplogFetcher::Documents::const_iterator end,
@@ -480,10 +492,10 @@ Status TenantMigrationRecipientService::Instance::_enqueueDocuments(
         return Status(ErrorCodes::Error(5124600), "Resume token returned is null");
     }
 
-    // We assign the resume token the same term as the last document in the batch. Since this
-    // noop should be the next operation in the oplog buffer, this will ensure it gets ordered
-    // correctly.
-    OpTime resumeToken = {info.resumeToken, info.lastDocument.getTerm()};
+    // We assign the resume token the same term as the last document inserted in the oplog buffer.
+    // Since this noop should be the next operation in the oplog buffer, this will ensure it gets
+    // ordered correctly.
+    OpTime resumeToken = {info.resumeToken, _getLatestTermInOplogBuffer(opCtx.get())};
     MutableOplogEntry noopEntry;
     noopEntry.setOpType(repl::OpTypeEnum::kNoop);
     noopEntry.setObject(BSON("msg"
@@ -494,7 +506,8 @@ Status TenantMigrationRecipientService::Instance::_enqueueDocuments(
 
     // Use an empty namespace string so this op is ignored by the applier.
     noopEntry.setNss({});
-    // Use an empty wall clock time since we have no wall clock time, but we must give it one, and we want it to be clearly fake.
+    // Use an empty wall clock time since we have no wall clock time, but we must give it one, and
+    // we want it to be clearly fake.
     noopEntry.setWallClockTime({});
 
     OplogBuffer::Batch noopVec = {noopEntry.toBSON()};

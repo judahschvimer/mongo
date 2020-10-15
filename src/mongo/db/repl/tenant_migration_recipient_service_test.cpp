@@ -1089,10 +1089,12 @@ TEST_F(TenantMigrationRecipientServiceTest, TenantMigrationRecipientAddResumeTok
 
     BSONObj insertDoc;
     ASSERT_TRUE(oplogBuffer->tryPop(opCtx.get(), &insertDoc));
+    LOGV2(5124600, "Insert oplog entry", "entry"_attr = insertDoc);
     ASSERT_BSONOBJ_EQ(insertDoc, oplogEntry.toBSON());
 
     BSONObj noopDoc;
     ASSERT_TRUE(oplogBuffer->tryPop(opCtx.get(), &noopDoc));
+    LOGV2(5124601, "Noop oplog entry", "entry"_attr = noopDoc);
     OplogEntry noopEntry(noopDoc);
     ASSERT_TRUE(noopEntry.getOpType() == OpTypeEnum::kNoop);
     ASSERT_EQUALS(noopEntry.getTimestamp(), resumeToken);
