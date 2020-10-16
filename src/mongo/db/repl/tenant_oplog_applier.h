@@ -82,11 +82,6 @@ public:
      */
     SemiFuture<OpTimePair> getNotificationForOpTime(OpTime donorOpTime);
 
-    /**
-     * Returns the last donor and recipient optimes of the last batch applied.
-     */
-    OpTimePair getLastBatchCompletedOpTimes();
-
     void setBatchLimits_forTest(TenantOplogBatcher::BatchLimits limits) {
         _limits = limits;
     }

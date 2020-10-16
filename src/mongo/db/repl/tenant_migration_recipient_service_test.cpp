@@ -1108,9 +1108,6 @@ TEST_F(TenantMigrationRecipientServiceTest, TenantMigrationRecipientAddResumeTok
 
     // Wait for task completion success.
     ASSERT_OK(instance->getCompletionFuture().getNoThrow());
-
-    // TODO Ensure the applier doesn't write an extra noop in this case and that
-    // _lastBatchCompletedOpTimes gets updated.
 }
 }  // namespace repl
 }  // namespace mongo

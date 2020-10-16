@@ -294,6 +294,12 @@ TenantOplogApplier::OpTimePair TenantOplogApplier::_writeNoOpEntries(
     auto oplogSlots = repl::getNextOpTimes(opCtx, batch.ops.size());
     auto slotIter = oplogSlots.begin();
     for (const auto& op : batch.ops) {
+        if (op.entry.getOpType() == OpTypeEnum::kNoop) {
+            // We do not want to set the recipient optime for noop oplog entries since we
+            // won't actually apply them. We replace the slot value so that we return a correct
+            // OpTime pair for the end of the batch.
+            *slotIter = OpTime();
+        }
         _setRecipientOpTime(op.entry.getOpTime(), *slotIter++);
     }
     const size_t numOplogThreads = _writerPool->getStats().numThreads;
@@ -379,18 +385,26 @@ void TenantOplogApplier::_writeNoOpsForRange(OpObserver* opObserver,
             WriteUnitOfWork wuow(opCtx.get());
             auto slot = firstSlot;
             for (auto iter = begin; iter != end; iter++, slot++) {
+                const auto entry = iter->entry;
+                if (entry.getOpType() == OpTypeEnum::kNoop) {
+                    // We don't want to write noops for noop oplog entries. They would not be
+                    // appied in a change stream anyways.
+                    invariant(slot->isNull(),
+                              str::stream() << "Oplog slot not null for noop " << slot->toString());
+                    continue;
+                }
                 opObserver->onInternalOpMessage(
                     opCtx.get(),
-                    iter->entry.getNss(),
-                    iter->entry.getUuid(),
-                    iter->entry.toBSON(),
+                    entry.getNss(),
+                    entry.getUuid(),
+                    entry.toBSON(),
                     BSONObj(),
                     // We link the no-ops together by recipient op time the same way the actual ops
                     // were linked together by donor op time.  This is to allow retryable writes
                     // and changestreams to find the ops they need.
-                    _maybeGetRecipientOpTime(iter->entry.getPreImageOpTime()),
-                    _maybeGetRecipientOpTime(iter->entry.getPostImageOpTime()),
-                    _maybeGetRecipientOpTime(iter->entry.getPrevWriteOpTimeInTransaction()),
+                    _maybeGetRecipientOpTime(entry.getPreImageOpTime()),
+                    _maybeGetRecipientOpTime(entry.getPostImageOpTime()),
+                    _maybeGetRecipientOpTime(entry.getPrevWriteOpTimeInTransaction()),
                     *slot);
             }
         });

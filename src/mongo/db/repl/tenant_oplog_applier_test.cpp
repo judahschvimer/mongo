@@ -739,7 +739,15 @@ TEST_F(TenantOplogApplierTest, ApplyNoop_Success) {
         _migrationUuid, _tenantId, OpTime(), &_oplogBuffer, _executor, writerPool.get());
     ASSERT_OK(applier.startup());
     auto opAppliedFuture = applier.getNotificationForOpTime(entry.getOpTime());
-    ASSERT_OK(opAppliedFuture.getNoThrow().getStatus());
+    auto futureRes = opAppliedFuture.getNoThrow();
+
+    auto entries = _opObserver->getEntries();
+    ASSERT_EQ(0, entries.size());
+
+    ASSERT_OK(futureRes.getStatus());
+    ASSERT_EQUALS(futureRes.getValue().donorOpTime, entry.getOpTime());
+    ASSERT_EQUALS(futureRes.getValue().recipientOpTime, OpTime());
+
     applier.shutdown();
     applier.join();
 }
