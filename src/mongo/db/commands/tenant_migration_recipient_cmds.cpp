@@ -127,6 +127,21 @@ public:
             uassert(ErrorCodes::CommandNotSupported,
                     "recipientForgetMigration command not enabled",
                     repl::enableTenantMigrations);
+
+            const RequestType& requestBody = request();
+
+            auto recipientService =
+                repl::PrimaryOnlyServiceRegistry::get(opCtx->getServiceContext())
+                    ->lookupServiceByName(repl::TenantMigrationRecipientService::kServiceName);
+            auto recipient = repl::TenantMigrationRecipientService::Instance::lookup(
+                opCtx, recipientService, BSON("_id" << requestBody.getMigrationId()));
+            uassert(ErrorCodes::NoSuchTenantMigration,
+                    str::stream() << "Could not find tenant migration with id "
+                                  << requestBody.getMigrationId(),
+                    recipient);
+
+            recipient.get().get()->onReceiveRecipientForgetMigration();
+            recipient.get().get()->getCompletionFuture().get(opCtx);
         }
 
         void doCheckAuthorization(OperationContext* opCtx) const {}
