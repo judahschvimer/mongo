@@ -132,7 +132,8 @@ public:
 
             auto recipientService =
                 repl::PrimaryOnlyServiceRegistry::get(opCtx->getServiceContext())
-                    ->lookupServiceByName(repl::TenantMigrationRecipientService::kServiceName);
+                    ->lookupServiceByName(repl::TenantMigrationRecipientService::
+                                              kTenantMigrationRecipientServiceName);
             auto recipient = repl::TenantMigrationRecipientService::Instance::lookup(
                 opCtx, recipientService, BSON("_id" << requestBody.getMigrationId()));
             uassert(ErrorCodes::NoSuchTenantMigration,
@@ -140,7 +141,7 @@ public:
                                   << requestBody.getMigrationId(),
                     recipient);
 
-            recipient.get().get()->onReceiveRecipientForgetMigration();
+            recipient.get().get()->onReceiveRecipientForgetMigration(opCtx);
             recipient.get().get()->getCompletionFuture().get(opCtx);
         }
 

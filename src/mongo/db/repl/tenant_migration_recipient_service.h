@@ -88,6 +88,12 @@ public:
         void interrupt(Status status) override;
 
         /**
+         * Interrupts the migration, marks the state machine as garbage collectible, and waits for
+         * the state machine document update to be majority committed.
+         */
+       void onReceiveRecipientForgetMigration(OperationContext* opCtx);
+
+        /**
          * Returns a Future that will be resolved when all work associated with this Instance has
          * completed running.
          */

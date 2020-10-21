@@ -728,6 +728,34 @@ void TenantMigrationRecipientService::Instance::interrupt(Status status) {
     _taskState.setState(TaskState::kInterrupted, status);
 }
 
+void TenantMigrationRecipientService::Instance::onReceiveRecipientForgetMigration(
+    OperationContext* opCtx) {
+    auto client = repl::ReplClientInfo::forClient(opCtx->getClient());
+    auto waitForMajFuture =
+        ([&]() {
+            stdx::lock_guard lk(_mutex);
+            if (_stateDoc.getExpireAt()) {
+                // If the expiration is already set, we don't want to set it further in the future.
+                // If the recipientForgetMigration command failed and was retried without a failover
+                // we need to wait for the previous update to the state doc to be committed.
+                client.setLastOpToSystemLastOpTime(opCtx);
+            } else {
+                _stateDoc.setExpireAt(
+                    opCtx->getServiceContext()->getFastClockSource()->now() +
+                    Milliseconds{repl::tenantMigrationGarbageCollectionDelayMS.load()});
+                uassertStatusOK(
+                    tenantMigrationRecipientEntryHelpers::updateStateDoc(opCtx.get(), _stateDoc));
+            }
+            return WaitForMajorityService::get(opCtx->getServiceContext())
+                .waitUntilMajority(repl::ReplClientInfo::forClient(cc()).getLastOp());
+        })();
+
+    interrupt(Status(ErrorCodes::Interrupted,
+                     str::stream() << "recipientForgetMigration received for migration "
+                                   << getMigrationUUID()));
+    waitForMajFuture.get();
+}
+
 void TenantMigrationRecipientService::Instance::_cleanupOnTaskCompletion(Status status) {
     stdx::lock_guard lk(_mutex);
 
