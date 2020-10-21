@@ -142,7 +142,6 @@ public:
                     recipient);
 
             recipient.get().get()->onReceiveRecipientForgetMigration(opCtx);
-            recipient.get().get()->getCompletionFuture().get(opCtx);
         }
 
         void doCheckAuthorization(OperationContext* opCtx) const {}
