@@ -128,20 +128,25 @@ public:
                     "recipientForgetMigration command not enabled",
                     repl::enableTenantMigrations);
 
-            const RequestType& requestBody = request();
+            const auto& cmd = request();
+
+            // Even if there is no document for the migration, we need to create one. We create
+            // one with dummy values. If a recipientSyncData command arrives, it will get a
+            // ConflictingMigrationInProgress error. If another recipientForgetMigration command
+            // arrives, it will retrieve this document and see that it's already been marked for
+            // garbage collection.
+            // TODO: Ensure if this document gets created here, that it actually has an expiration time.
+            TenantMigrationRecipientDocument stateDoc(cmd.getMigrationId(), "", "", {});
 
             auto recipientService =
                 repl::PrimaryOnlyServiceRegistry::get(opCtx->getServiceContext())
                     ->lookupServiceByName(repl::TenantMigrationRecipientService::
                                               kTenantMigrationRecipientServiceName);
-            auto recipient = repl::TenantMigrationRecipientService::Instance::lookup(
-                opCtx, recipientService, BSON("_id" << requestBody.getMigrationId()));
-            uassert(ErrorCodes::NoSuchTenantMigration,
-                    str::stream() << "Could not find tenant migration with id "
-                                  << requestBody.getMigrationId(),
-                    recipient);
+            auto recipientInstance = repl::TenantMigrationRecipientService::Instance::getOrCreate(
+                opCtx, recipientService, stateDoc.toBSON());
 
-            recipient.get().get()->onReceiveRecipientForgetMigration(opCtx);
+            recipientInstance->onReceiveRecipientForgetMigration(opCtx);
+            recipientInstance->getCompletionFuture().get(opCtx);
         }
 
         void doCheckAuthorization(OperationContext* opCtx) const {}

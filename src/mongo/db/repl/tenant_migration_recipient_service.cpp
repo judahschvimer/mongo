@@ -734,34 +734,9 @@ void TenantMigrationRecipientService::Instance::onReceiveRecipientForgetMigratio
           "Forgetting migration due to recipientForgetMigration command",
           "migrationId"_attr = getMigrationUUID(),
           "tenantId"_attr = getTenantId());
-    auto client = repl::ReplClientInfo::forClient(opCtx->getClient());
-    auto waitForMajFuture = ([&]() {
-        stdx::lock_guard lk(_mutex);
-        if (_stateDoc.getExpireAt()) {
-            // If the expiration is already set, we don't want to set it further in the future.
-            // If the recipientForgetMigration command failed and was retried without a failover
-            // we need to wait for the previous update to the state doc to be committed.
-            client.setLastOpToSystemLastOpTime(opCtx);
-        } else {
-            _stateDoc.setExpireAt(
-                opCtx->getServiceContext()->getFastClockSource()->now() +
-                Milliseconds{repl::tenantMigrationGarbageCollectionDelayMS.load()});
-            LOGV2(4881401,
-                  "Migration marked to be garbage collected",
-                  "migrationId"_attr = getMigrationUUID(),
-                  "tenantId"_attr = getTenantId(),
-                  "expireAt"_attr = *_stateDoc.getExpireAt());
-            uassertStatusOK(
-                tenantMigrationRecipientEntryHelpers::updateStateDoc(opCtx.get(), _stateDoc));
-        }
-        return WaitForMajorityService::get(opCtx->getServiceContext())
-            .waitUntilMajority(repl::ReplClientInfo::forClient(cc()).getLastOp());
-    })();
 
-    interrupt(Status(ErrorCodes::Interrupted,
-                     str::stream() << "recipientForgetMigration received for migration "
-                                   << getMigrationUUID()));
-    waitForMajFuture.get();
+    interrupt(Status(ErrorCodes::TenantMigrationForgotten str::stream()
+                     << "recipientForgetMigration received for migration " << getMigrationUUID()));
 }
 
 void TenantMigrationRecipientService::Instance::_cleanupOnTaskCompletion(Status status) {
@@ -822,10 +797,12 @@ void TenantMigrationRecipientService::Instance::run(
     std::shared_ptr<executor::ScopedTaskExecutor> executor) noexcept {
     _scopedExecutor = executor;
     pauseBeforeRunTenantMigrationRecipientInstance.pauseWhileSet();
+    stdx::lock_guard lk(_mutex);
+
     if (_stateDoc.getExpireAt()) {
-        uasserted(Status(ErrorCodes::Interrupted,
-                         str::stream() << "Migration " << getMigrationUUID()
-                                       << " already marked for garbage collect"));
+        uasserted(ErrorCodes::Interrupted,
+                  str::stream() << "Migration " << getMigrationUUID()
+                                << " already marked for garbage collect");
     }
 
     LOGV2(4879607,
@@ -950,30 +927,67 @@ void TenantMigrationRecipientService::Instance::run(
             // e.g. by recipientForgetMigration.
             return _tenantOplogApplier->getNotificationForOpTime(OpTime::max());
         })
-        .getAsync([this](StatusOrStatusWith<TenantOplogApplier::OpTimePair> applierStatus) {
-            // We don't need the final optime from the oplog applier.
+        .onCompletion([this](StatusOrStatusWith<TenantOplogApplier::OpTimePair> applierStatus) {
             Status status = applierStatus.getStatus();
-            {
-                // If we were interrupted during oplog application, replace oplog application
-                // status with error state.
-                stdx::lock_guard lk(_mutex);
-                if ((status.isOK() || ErrorCodes::isCancelationError(status)) &&
-                    _taskState.isInterrupted()) {
-                    // We get an "OK" result when the stopReplProducer failpoint is set.  This also
-                    // cancels the migration.  We will have already logged this in
-                    // _oplogFetcherCallback()
-                    if (!status.isOK()) {
-                        LOGV2(4881207,
-                              "Migration completed with both error and interrupt",
-                              "tenantId"_attr = getTenantId(),
-                              "migrationId"_attr = getMigrationUUID(),
-                              "completionStatus"_attr = status,
-                              "interruptStatus"_attr = _taskState.getInterruptStatus());
-                    }
-                    status = _taskState.getInterruptStatus();
+            LOGV2(4881400,
+                  "Tenant migration completing",
+                  "migrationId"_attr = _stateDoc.getId(),
+                  "tenantId"_attr = _stateDoc.getTenantId(),
+                  "status"_attr = status,
+                  "interruptStatus"_attr = _taskState.getInterruptStatus());
+            stdx::lock_guard lk(_mutex);
+
+            if ((status.isOK() || ErrorCodes::isCancelationError(status)) &&
+                _taskState.isInterrupted()) {
+                // We get an "OK" result when the stopReplProducer failpoint is set.  This also
+                // cancels the migration.  We will have already logged this in
+                // _oplogFetcherCallback()
+                if (!status.isOK()) {
+                    LOGV2(4881207,
+                          "Migration completed with both error and interrupt",
+                          "tenantId"_attr = getTenantId(),
+                          "migrationId"_attr = getMigrationUUID(),
+                          "completionStatus"_attr = status,
+                          "interruptStatus"_attr = _taskState.getInterruptStatus());
                 }
+                status = _taskState.getInterruptStatus();
             }
 
+            // If the interruption was from a recipientForgetMigration command, modify the document.
+            if (_taskState.isInterrupted() &&
+                _taskState.getInterruptStatus() == ErrorCodes::TenantMigrationForgotten) {
+                auto opCtx = cc().makeOperationContext();
+                auto client = repl::ReplClientInfo::forClient(opCtx->getClient());
+                if (_stateDoc.getExpireAt()) {
+                    // If the expiration is already set, we don't want to set it further in the
+                    // future. If the recipientForgetMigration command failed and was retried
+                    // without a failover we need to wait for the previous update to the state doc
+                    // to be committed.
+                    client.setLastOpToSystemLastOpTime(opCtx.get());
+                } else {
+                    _stateDoc.setExpireAt(
+                        opCtx->getServiceContext()->getFastClockSource()->now() +
+                        Milliseconds{repl::tenantMigrationGarbageCollectionDelayMS.load()});
+                    LOGV2(4881401,
+                          "Migration marked to be garbage collected",
+                          "migrationId"_attr = getMigrationUUID(),
+                          "tenantId"_attr = getTenantId(),
+                          "expireAt"_attr = *_stateDoc.getExpireAt());
+                    uassertStatusOK(tenantMigrationRecipientEntryHelpers::updateStateDoc(
+                        opCtx.get(), _stateDoc));
+                }
+                _taskState.setState(TaskState::kDone);
+                return WaitForMajorityService::get(opCtx->getServiceContext())
+                    .waitUntilMajority(repl::ReplClientInfo::forClient(cc()).getLastOp())
+                    .thenRunOn(**_scopedExecutor)
+                    // Propagate the error to getAsync.
+                    .then([status] { return SemiFuture<void>::makeReady(status); })
+                    .semi();
+            }
+            return SemiFuture<void>::makeReady(status);
+        })
+        .getAsync([this](Status status) {
+            // We don't need the final optime from the oplog applier.
             LOGV2(4878501,
                   "Tenant migration recipient instance: Data sync completed.",
                   "tenantId"_attr = getTenantId(),
