@@ -84,7 +84,7 @@ public:
      * contain donor and recipient optime of last oplog entry in batch where donor optime is greater
      * than passed-in time.
      */
-    Future<OpTimePair> getNotificationForOpTime(OpTime donorOpTime);
+    SemiFuture<OpTimePair> getNotificationForOpTime(OpTime donorOpTime);
 
     void setBatchLimits_forTest(TenantOplogBatcher::BatchLimits limits) {
         _limits = limits;

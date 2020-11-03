@@ -735,7 +735,7 @@ void TenantMigrationRecipientService::Instance::onReceiveRecipientForgetMigratio
           "migrationId"_attr = getMigrationUUID(),
           "tenantId"_attr = getTenantId());
 
-    interrupt(Status(ErrorCodes::TenantMigrationForgotten str::stream()
+    interrupt(Status(ErrorCodes::TenantMigrationForgotten, str::stream()
                      << "recipientForgetMigration received for migration " << getMigrationUUID()));
 }
 
@@ -800,7 +800,7 @@ void TenantMigrationRecipientService::Instance::run(
     stdx::lock_guard lk(_mutex);
 
     if (_stateDoc.getExpireAt()) {
-        uasserted(ErrorCodes::Interrupted,
+        uasserted(ErrorCodes::TenantMigrationForgotten,
                   str::stream() << "Migration " << getMigrationUUID()
                                 << " already marked for garbage collect");
     }
