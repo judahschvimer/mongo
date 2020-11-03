@@ -146,7 +146,11 @@ public:
                 opCtx, recipientService, stateDoc.toBSON());
 
             recipientInstance->onReceiveRecipientForgetMigration(opCtx);
-            recipientInstance->getCompletionFuture().get(opCtx);
+            auto res = recipientInstance->getCompletionFuture().getNoThrow();
+            // Ignore statuses indicating the migration was forgotten.
+            if(!res.isOK() && res != ErrorCodes::TenantMigrationForgotten){
+                uassertStatusOK(res);
+            }
         }
 
         void doCheckAuthorization(OperationContext* opCtx) const {}

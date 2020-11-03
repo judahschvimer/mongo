@@ -968,6 +968,7 @@ void TenantMigrationRecipientService::Instance::run(
                     _stateDoc.setExpireAt(
                         opCtx->getServiceContext()->getFastClockSource()->now() +
                         Milliseconds{repl::tenantMigrationGarbageCollectionDelayMS.load()});
+                    _stateDoc.setState(TenantMigrationRecipientStateEnum::kDone);
                     LOGV2(4881401,
                           "Migration marked to be garbage collected",
                           "migrationId"_attr = getMigrationUUID(),
@@ -976,7 +977,6 @@ void TenantMigrationRecipientService::Instance::run(
                     uassertStatusOK(tenantMigrationRecipientEntryHelpers::updateStateDoc(
                         opCtx.get(), _stateDoc));
                 }
-                _taskState.setState(TaskState::kDone);
                 return WaitForMajorityService::get(opCtx->getServiceContext())
                     .waitUntilMajority(repl::ReplClientInfo::forClient(cc()).getLastOp())
                     .thenRunOn(**_scopedExecutor)

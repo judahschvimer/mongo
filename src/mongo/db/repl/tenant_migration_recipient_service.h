@@ -196,7 +196,7 @@ public:
 
             void setState(StateFlag state, boost::optional<Status> interruptStatus = boost::none) {
                 invariant(checkIfValidTransition(state),
-                          str::stream() << "current state :" << toString(_state)
+                          str::stream() << "current state: " << toString(_state)
                                         << ", new state: " << toString(state));
 
                 _state = state;

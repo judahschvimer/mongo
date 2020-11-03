@@ -1034,30 +1034,35 @@ TEST_F(TenantMigrationRecipientServiceTest, StoppingApplierAllowsCompletion) {
 
 TEST_F(TenantMigrationRecipientServiceTest, RecipientForgetMigration_BeforeStart) {
     const UUID migrationUUID = UUID::gen();
-    TenantMigrationRecipientDocument stateDoc(migrationUUID, "foo", "bar", {});
+    MockReplicaSet replSet("donorSet", 3, true /* hasPrimary */, true /* dollarPrefixHosts */);
+       TenantMigrationRecipientDocument initialStateDocument(
+        migrationUUID,
+        replSet.getConnectionString(),
+        "tenantA",
+        ReadPreferenceSetting(ReadPreference::PrimaryOnly));
 
     auto opCtx = makeOperationContext();
     auto instance = repl::TenantMigrationRecipientService::Instance::getOrCreate(
-        opCtx.get(), _service, stateDoc.toBSON());
+        opCtx.get(), _service, initialStateDocument.toBSON());
 
     instance->onReceiveRecipientForgetMigration(opCtx.get());
-    ASSERT_OK(instance->getCompletionFuture().getNoThrow());
+    ASSERT_EQ(instance->getCompletionFuture().getNoThrow(), ErrorCodes::TenantMigrationForgotten);
 
     const auto doc = getStateDoc(instance.get());
     LOGV2(4881400,
           "Test migration complete",
-          "preStateDoc"_attr = stateDoc.toBSON(),
+          "preStateDoc"_attr = initialStateDocument.toBSON(),
           "postStateDoc"_attr = doc.toBSON());
-    ASSERT_EQ(doc.getDonorConnectionString(), "");
-    ASSERT_EQ(doc.getTenantId(), "");
-    ASSERT_TRUE(doc.getReadPreference().equals(ReadPreferenceSetting()));
+    ASSERT_EQ(doc.getDonorConnectionString(), replSet.getConnectionString());
+    ASSERT_EQ(doc.getTenantId(), "tenantA");
+    ASSERT_TRUE(doc.getReadPreference().equals(ReadPreferenceSetting(ReadPreference::PrimaryOnly)));
     ASSERT_TRUE(doc.getState() == TenantMigrationRecipientStateEnum::kDone);
-    ASSERT_TRUE(doc.getExpireAt() == boost::none);
+    ASSERT_TRUE(doc.getExpireAt() != boost::none);
     ASSERT_TRUE(doc.getExpireAt().get() > opCtx->getServiceContext()->getFastClockSource()->now());
-    ASSERT_TRUE(doc.getStartApplyingOpTime() != boost::none);
-    ASSERT_TRUE(doc.getStartFetchingOpTime() != boost::none);
-    ASSERT_TRUE(doc.getDataConsistentStopOpTime() != boost::none);
-    ASSERT_TRUE(doc.getCloneFinishedOpTime() != boost::none);
+    ASSERT_TRUE(doc.getStartApplyingOpTime() == boost::none);
+    ASSERT_TRUE(doc.getStartFetchingOpTime() == boost::none);
+    ASSERT_TRUE(doc.getDataConsistentStopOpTime() == boost::none);
+    ASSERT_TRUE(doc.getCloneFinishedOpTime() == boost::none);
     checkStateDocPersisted(opCtx.get(), instance.get());
 }
 
