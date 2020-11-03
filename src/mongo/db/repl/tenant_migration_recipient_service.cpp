@@ -836,8 +836,7 @@ void TenantMigrationRecipientService::Instance::run(
                 uassertStatusOK(_taskState.getInterruptStatus());
             }
 
-            // interrupt() called after this code block will interrupt the cloner, oplog applier and
-            // fetcher.
+            // interrupt() called after this code block will interrupt the cloner and fetcher.
             _client = std::move(ConnectionPair.first);
             _oplogFetcherClient = std::move(ConnectionPair.second);
 
@@ -872,6 +871,12 @@ void TenantMigrationRecipientService::Instance::run(
             _stopOrHangOnFailPoint(&fpAfterStartingOplogFetcherMigrationRecipientInstance);
 
             stdx::lock_guard lk(_mutex);
+            // Check for interrupt before creating the oplog applier. After this point, interrupt
+            // will shut down the oplog applier.
+            if (_taskState.isInterrupted()) {
+                uassertStatusOK(_taskState.getInterruptStatus());
+            }
+
             // Create the oplog applier but do not start it yet.
             invariant(_stateDoc.getStartApplyingOpTime());
             LOGV2_DEBUG(4881202,

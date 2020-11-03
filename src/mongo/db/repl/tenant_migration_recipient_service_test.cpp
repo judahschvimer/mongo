@@ -1066,6 +1066,59 @@ TEST_F(TenantMigrationRecipientServiceTest, RecipientForgetMigration_BeforeStart
     checkStateDocPersisted(opCtx.get(), instance.get());
 }
 
+TEST_F(TenantMigrationRecipientServiceTest, RecipientForgetMigration_AfterStartOpTimes) {
+                                     auto fp =
+        globalFailPointRegistry().find("fpAfterRetrievingStartOpTimesMigrationRecipientInstance");
+    auto initialTimesEntered = fp->setMode(FailPoint::alwaysOn,
+                                                       0,
+                                                       BSON("action"
+                                                            << "hang"));
+
+
+    const UUID migrationUUID = UUID::gen();
+    const OpTime topOfOplogOpTime(Timestamp(5, 1), 1);
+
+    MockReplicaSet replSet("donorSet", 3, true /* hasPrimary */, true /* dollarPrefixHosts */);
+    insertTopOfOplog(&replSet, topOfOplogOpTime);
+
+    TenantMigrationRecipientDocument initialStateDocument(
+        migrationUUID,
+        replSet.getConnectionString(),
+        "tenantA",
+        ReadPreferenceSetting(ReadPreference::PrimaryOnly));
+
+    // Create and start the instance.
+    auto opCtx = makeOperationContext();
+    auto instance = TenantMigrationRecipientService::Instance::getOrCreate(
+        opCtx.get(), _service, initialStateDocument.toBSON());
+    ASSERT(instance.get());
+
+    fp->waitForTimesEntered(initialTimesEntered + 1);
+    instance->onReceiveRecipientForgetMigration(opCtx.get());
+
+    // Skip the cloners in this test, so we provide an empty list of databases.
+    MockRemoteDBServer* const _donorServer =
+        mongo::MockConnRegistry::get()->getMockRemoteDBServer(replSet.getPrimary());
+    _donorServer->setCommandReply("listDatabases", makeListDatabasesResponse({}));
+    _donorServer->setCommandReply("find", makeFindResponse());
+
+    fp->setMode(FailPoint::off);
+    ASSERT_EQ(instance->getCompletionFuture().getNoThrow(), ErrorCodes::TenantMigrationForgotten);
+
+    const auto doc = getStateDoc(instance.get());
+    LOGV2(4881400,
+          "Test migration complete",
+          "preStateDoc"_attr = initialStateDocument.toBSON(),
+          "postStateDoc"_attr = doc.toBSON());
+    ASSERT_EQ(doc.getDonorConnectionString(), replSet.getConnectionString());
+    ASSERT_EQ(doc.getTenantId(), "tenantA");
+    ASSERT_TRUE(doc.getReadPreference().equals(ReadPreferenceSetting(ReadPreference::PrimaryOnly)));
+    ASSERT_TRUE(doc.getState() == TenantMigrationRecipientStateEnum::kDone);
+    ASSERT_TRUE(doc.getExpireAt() != boost::none);
+    ASSERT_TRUE(doc.getExpireAt().get() > opCtx->getServiceContext()->getFastClockSource()->now());
+    checkStateDocPersisted(opCtx.get(), instance.get());
+}
+
 TEST_F(TenantMigrationRecipientServiceTest, TenantMigrationRecipientAddResumeTokenNoopsToBuffer) {
     FailPointEnableBlock fp("fpAfterCollectionClonerDone",
                             BSON("action"
