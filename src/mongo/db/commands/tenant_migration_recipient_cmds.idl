@@ -60,7 +60,7 @@ commands:
         type: uuid
       donorConnectionString:
         description: >-
-          The URI string that the recipient will utilize to create a connection with the 
+          The URI string that the recipient will utilize to create a connection with the
           donor.
         type: string
         validator:
@@ -78,7 +78,7 @@ commands:
         type: readPreference
       returnAfterReachingTimestamp:
         description: >-
-          If provided, the recipient should return after syncing up to this timestamp. 
+          If provided, the recipient should return after syncing up to this timestamp.
           Otherwise, the recipient will return once its copy of the data is consistent.
         type: timestamp
         optional: true
@@ -94,3 +94,21 @@ commands:
       migrationId:
         description: "Unique identifier for the tenant migration."
         type: uuid
+      donorConnectionString:
+        description: >-
+          The URI string that the recipient will utilize to create a connection with the
+          donor.
+        type: string
+        validator:
+          callback: "validateConnectionString"
+      tenantId:
+        description: >-
+          The prefix from which the migrating database will be matched. The prefixes 'admin',
+          'local', 'config', the empty string, are not allowed.
+        type: string
+        validator:
+          callback: "validateDatabasePrefix"
+      readPreference:
+        description: >-
+          The read preference settings that the donor will pass on to the recipient.
+        type: readPreference

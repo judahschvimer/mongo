@@ -130,13 +130,13 @@ public:
 
             const auto& cmd = request();
 
-            // Even if there is no document for the migration, we need to create one. We create
-            // one with dummy values. If a recipientSyncData command arrives, it will get a
-            // ConflictingMigrationInProgress error. If another recipientForgetMigration command
-            // arrives, it will retrieve this document and see that it's already been marked for
-            // garbage collection.
+            // Even if there is no document for the migration, we need to create one that's marked
+            // for garbage collection.
             // TODO: Ensure if this document gets created here, that it actually has an expiration time.
-            TenantMigrationRecipientDocument stateDoc(cmd.getMigrationId(), "", "", {});
+            TenantMigrationRecipientDocument stateDoc(cmd.getMigrationId(),
+                                                      cmd.getDonorConnectionString().toString(),
+                                                      cmd.getTenantId().toString(),
+                                                      cmd.getReadPreference());
 
             auto recipientService =
                 repl::PrimaryOnlyServiceRegistry::get(opCtx->getServiceContext())

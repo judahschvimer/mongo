@@ -1032,6 +1032,35 @@ TEST_F(TenantMigrationRecipientServiceTest, StoppingApplierAllowsCompletion) {
     ASSERT_NOT_OK(instance->getCompletionFuture().getNoThrow());
 }
 
+TEST_F(TenantMigrationRecipientServiceTest, RecipientForgetMigration_BeforeStart) {
+    const UUID migrationUUID = UUID::gen();
+    TenantMigrationRecipientDocument stateDoc(migrationUUID, "foo", "bar", {});
+
+    auto opCtx = makeOperationContext();
+    auto instance = repl::TenantMigrationRecipientService::Instance::getOrCreate(
+        opCtx.get(), _service, stateDoc.toBSON());
+
+    instance->onReceiveRecipientForgetMigration(opCtx.get());
+    ASSERT_OK(instance->getCompletionFuture().getNoThrow());
+
+    const auto doc = getStateDoc(instance.get());
+    LOGV2(4881400,
+          "Test migration complete",
+          "preStateDoc"_attr = stateDoc.toBSON(),
+          "postStateDoc"_attr = doc.toBSON());
+    ASSERT_EQ(doc.getDonorConnectionString(), "");
+    ASSERT_EQ(doc.getTenantId(), "");
+    ASSERT_TRUE(doc.getReadPreference().equals(ReadPreferenceSetting()));
+    ASSERT_TRUE(doc.getState() == TenantMigrationRecipientStateEnum::kDone);
+    ASSERT_TRUE(doc.getExpireAt() == boost::none);
+    ASSERT_TRUE(doc.getExpireAt().get() > opCtx->getServiceContext()->getFastClockSource()->now());
+    ASSERT_TRUE(doc.getStartApplyingOpTime() != boost::none);
+    ASSERT_TRUE(doc.getStartFetchingOpTime() != boost::none);
+    ASSERT_TRUE(doc.getDataConsistentStopOpTime() != boost::none);
+    ASSERT_TRUE(doc.getCloneFinishedOpTime() != boost::none);
+    checkStateDocPersisted(opCtx.get(), instance.get());
+}
+
 TEST_F(TenantMigrationRecipientServiceTest, TenantMigrationRecipientAddResumeTokenNoopsToBuffer) {
     FailPointEnableBlock fp("fpAfterCollectionClonerDone",
                             BSON("action"

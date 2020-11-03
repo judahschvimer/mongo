@@ -470,9 +470,18 @@ ExecutorFuture<void> TenantMigrationDonorService::Instance::_sendRecipientSyncDa
 ExecutorFuture<void> TenantMigrationDonorService::Instance::_sendRecipientForgetMigrationCommand(
     std::shared_ptr<executor::ScopedTaskExecutor> executor,
     std::shared_ptr<RemoteCommandTargeter> recipientTargeterRS) {
-    return _sendCommandToRecipient(executor,
-                                   recipientTargeterRS,
-                                   RecipientForgetMigration(_stateDoc.getId()).toBSON(BSONObj()));
+
+    auto opCtxHolder = cc().makeOperationContext();
+    auto opCtx = opCtxHolder.get();
+
+    auto donorConnString =
+        repl::ReplicationCoordinator::get(opCtx)->getConfig().getConnectionString();
+    RecipientForgetMigration request(_stateDoc.getId(),
+                                     donorConnString.toString(),
+                                     _stateDoc.getTenantId().toString(),
+                                     _stateDoc.getReadPreference());
+
+    return _sendCommandToRecipient(executor, recipientTargeterRS, request.toBSON(BSONObj()));
 }
 
 void TenantMigrationDonorService::Instance::run(
