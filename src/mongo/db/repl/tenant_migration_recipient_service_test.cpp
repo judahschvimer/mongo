@@ -1153,23 +1153,112 @@ TEST_F(TenantMigrationRecipientServiceTest, RecipientForgetMigration_AfterConsis
         instance->setCreateOplogFetcherFn_forTest(std::make_unique<CreateOplogFetcherMockFn>());
     }
     fp->waitForTimesEntered(initialTimesEntered + 1);
+
+    {
+        const auto doc = getStateDoc(instance.get());
+        LOGV2(4881400,
+              "Test migration complete 1",
+              "preStateDoc"_attr = initialStateDocument.toBSON(),
+              "postStateDoc"_attr = doc.toBSON());
+        ASSERT_EQ(doc.getDonorConnectionString(), replSet.getConnectionString());
+        ASSERT_EQ(doc.getTenantId(), "tenantA");
+        ASSERT_TRUE(
+            doc.getReadPreference().equals(ReadPreferenceSetting(ReadPreference::PrimaryOnly)));
+        ASSERT_TRUE(doc.getState() == TenantMigrationRecipientStateEnum::kConsistent);
+        ASSERT_TRUE(doc.getExpireAt() == boost::none);
+        checkStateDocPersisted(opCtx.get(), instance.get());
+    }
+
     instance->onReceiveRecipientForgetMigration(opCtx.get());
 
     fp->setMode(FailPoint::off);
     ASSERT_EQ(instance->getCompletionFuture().getNoThrow(), ErrorCodes::TenantMigrationForgotten);
 
-    const auto doc = getStateDoc(instance.get());
-    LOGV2(4881400,
-          "Test migration complete",
-          "preStateDoc"_attr = initialStateDocument.toBSON(),
-          "postStateDoc"_attr = doc.toBSON());
-    ASSERT_EQ(doc.getDonorConnectionString(), replSet.getConnectionString());
-    ASSERT_EQ(doc.getTenantId(), "tenantA");
-    ASSERT_TRUE(doc.getReadPreference().equals(ReadPreferenceSetting(ReadPreference::PrimaryOnly)));
-    ASSERT_TRUE(doc.getState() == TenantMigrationRecipientStateEnum::kDone);
-    ASSERT_TRUE(doc.getExpireAt() != boost::none);
-    ASSERT_TRUE(doc.getExpireAt().get() > opCtx->getServiceContext()->getFastClockSource()->now());
-    checkStateDocPersisted(opCtx.get(), instance.get());
+    {
+        const auto doc = getStateDoc(instance.get());
+        LOGV2(4881400,
+              "Test migration complete",
+              "preStateDoc"_attr = initialStateDocument.toBSON(),
+              "postStateDoc"_attr = doc.toBSON());
+        ASSERT_EQ(doc.getDonorConnectionString(), replSet.getConnectionString());
+        ASSERT_EQ(doc.getTenantId(), "tenantA");
+        ASSERT_TRUE(
+            doc.getReadPreference().equals(ReadPreferenceSetting(ReadPreference::PrimaryOnly)));
+        ASSERT_TRUE(doc.getState() == TenantMigrationRecipientStateEnum::kDone);
+        ASSERT_TRUE(doc.getExpireAt() != boost::none);
+        ASSERT_TRUE(doc.getExpireAt().get() >
+                    opCtx->getServiceContext()->getFastClockSource()->now());
+        checkStateDocPersisted(opCtx.get(), instance.get());
+    }
+}
+
+TEST_F(TenantMigrationRecipientServiceTest, RecipientForgetMigration_AfterComplete) {
+    FailPointEnableBlock fp("fpAfterCollectionClonerDone",
+                            BSON("action"
+                                 << "stop"));
+    const UUID migrationUUID = UUID::gen();
+    const OpTime topOfOplogOpTime(Timestamp(5, 1), 1);
+
+    MockReplicaSet replSet("donorSet", 3, true /* hasPrimary */, true /* dollarPrefixHosts */);
+    insertTopOfOplog(&replSet, topOfOplogOpTime);
+
+    TenantMigrationRecipientDocument initialStateDocument(
+        migrationUUID,
+        replSet.getConnectionString(),
+        "tenantA",
+        ReadPreferenceSetting(ReadPreference::PrimaryOnly));
+
+    // Setting these causes us to skip cloning.
+    initialStateDocument.setCloneFinishedOpTime(topOfOplogOpTime);
+    initialStateDocument.setDataConsistentStopOpTime(topOfOplogOpTime);
+
+    auto opCtx = makeOperationContext();
+    std::shared_ptr<TenantMigrationRecipientService::Instance> instance;
+    {
+        FailPointEnableBlock fp("pauseBeforeRunTenantMigrationRecipientInstance");
+        // Create and start the instance.
+        instance = TenantMigrationRecipientService::Instance::getOrCreate(
+            opCtx.get(), _service, initialStateDocument.toBSON());
+        ASSERT(instance.get());
+        instance->setCreateOplogFetcherFn_forTest(std::make_unique<CreateOplogFetcherMockFn>());
+    }
+
+    ASSERT_OK(instance->getCompletionFuture().getNoThrow());
+
+    {
+        const auto doc = getStateDoc(instance.get());
+        LOGV2(4881400,
+              "Test migration complete 1",
+              "preStateDoc"_attr = initialStateDocument.toBSON(),
+              "postStateDoc"_attr = doc.toBSON());
+        ASSERT_EQ(doc.getDonorConnectionString(), replSet.getConnectionString());
+        ASSERT_EQ(doc.getTenantId(), "tenantA");
+        ASSERT_TRUE(
+            doc.getReadPreference().equals(ReadPreferenceSetting(ReadPreference::PrimaryOnly)));
+        ASSERT_TRUE(doc.getState() == TenantMigrationRecipientStateEnum::kStarted);
+        ASSERT_TRUE(doc.getExpireAt() == boost::none);
+        checkStateDocPersisted(opCtx.get(), instance.get());
+    }
+
+    instance->onReceiveRecipientForgetMigration(opCtx.get());
+    ASSERT_OK(instance->getCompletionFuture().getNoThrow());
+
+    {
+        const auto doc = getStateDoc(instance.get());
+        LOGV2(4881400,
+              "Test migration complete 2",
+              "preStateDoc"_attr = initialStateDocument.toBSON(),
+              "postStateDoc"_attr = doc.toBSON());
+        ASSERT_EQ(doc.getDonorConnectionString(), replSet.getConnectionString());
+        ASSERT_EQ(doc.getTenantId(), "tenantA");
+        ASSERT_TRUE(
+            doc.getReadPreference().equals(ReadPreferenceSetting(ReadPreference::PrimaryOnly)));
+        ASSERT_TRUE(doc.getState() == TenantMigrationRecipientStateEnum::kDone);
+        ASSERT_TRUE(doc.getExpireAt() != boost::none);
+        ASSERT_TRUE(doc.getExpireAt().get() >
+                    opCtx->getServiceContext()->getFastClockSource()->now());
+        checkStateDocPersisted(opCtx.get(), instance.get());
+    }
 }
 
 TEST_F(TenantMigrationRecipientServiceTest, TenantMigrationRecipientAddResumeTokenNoopsToBuffer) {

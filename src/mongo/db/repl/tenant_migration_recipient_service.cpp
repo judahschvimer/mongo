@@ -744,6 +744,7 @@ void TenantMigrationRecipientService::Instance::onReceiveRecipientForgetMigratio
           "migrationId"_attr = getMigrationUUID(),
           "tenantId"_attr = getTenantId());
 
+    // TODO: If done, still need to add expiration.
     interrupt(Status(ErrorCodes::TenantMigrationForgotten,
                      str::stream() << "recipientForgetMigration received for migration "
                                    << getMigrationUUID()));
