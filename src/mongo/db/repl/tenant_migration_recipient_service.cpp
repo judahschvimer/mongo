@@ -700,8 +700,17 @@ void TenantMigrationRecipientService::Instance::_shutdownComponents(WithLock lk)
     }
 
     if (_donorOplogBuffer) {
-        auto opCtx = cc().makeOperationContext();
-        _donorOplogBuffer->shutdown(opCtx.get());
+        // get or make an opCtx
+        boost::optional<ServiceContext::UniqueOperationContext> uniqueCtx;
+        auto* const opCtx = [&] {
+            if (cc().getOperationContext()) {
+                return cc().getOperationContext();
+            }
+
+            uniqueCtx.emplace(cc().makeOperationContext());
+            return uniqueCtx->get();
+        }();
+        _donorOplogBuffer->shutdown(opCtx);
     }
 }
 
@@ -735,8 +744,9 @@ void TenantMigrationRecipientService::Instance::onReceiveRecipientForgetMigratio
           "migrationId"_attr = getMigrationUUID(),
           "tenantId"_attr = getTenantId());
 
-    interrupt(Status(ErrorCodes::TenantMigrationForgotten, str::stream()
-                     << "recipientForgetMigration received for migration " << getMigrationUUID()));
+    interrupt(Status(ErrorCodes::TenantMigrationForgotten,
+                     str::stream() << "recipientForgetMigration received for migration "
+                                   << getMigrationUUID()));
 }
 
 void TenantMigrationRecipientService::Instance::_cleanupOnTaskCompletion(Status status) {
